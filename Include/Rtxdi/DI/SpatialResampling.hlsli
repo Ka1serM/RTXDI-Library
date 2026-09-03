@@ -38,7 +38,7 @@ RTXDI_DIReservoir RTXDI_DISpatialResamplingWithPairwiseMIS(
     RAB_Surface centerSurface,
     RTXDI_DIReservoir centerSample,
     inout RTXDI_RandomSamplerState rng,
-    RTXDI_RuntimeParameters params,
+    RTXDI_RuntimeParameters rParams,
     RTXDI_ReservoirBufferParameters reservoirParams,
 	uint sourceBufferIndex,
     RTXDI_DISpatialResamplingParameters sparams,
@@ -54,18 +54,18 @@ RTXDI_DIReservoir RTXDI_DISpatialResamplingWithPairwiseMIS(
         : sparams.numSamples;
 
     // Walk the specified number of neighbors, resampling using RIS
-    uint startIdx = uint(RTXDI_GetNextRandom(rng) * params.neighborOffsetMask);
+    uint startIdx = uint(RTXDI_GetNextRandom(rng) * rParams.neighborOffsetMask);
     uint validSpatialSamples = 0;
     uint i;
     for (i = 0; i < numSpatialSamples; ++i)
     {
         // Get screen-space location of neighbor
-        uint sampleIdx = (startIdx + i) & params.neighborOffsetMask;
+        uint sampleIdx = (startIdx + i) & rParams.neighborOffsetMask;
         int2 spatialOffset = int2(float2(RTXDI_NEIGHBOR_OFFSETS_BUFFER[sampleIdx].xy) * sparams.samplingRadius);
         int2 idx = int2(pixelPosition)+spatialOffset;
         idx = RAB_ClampSamplePositionIntoView(idx, false);
 
-        RTXDI_ActivateCheckerboardPixel(idx, false, params.activeCheckerboardField);
+        RTXDI_ActivateCheckerboardPixel(idx, false, rParams.activeCheckerboardField);
 
         RAB_Surface neighborSurface = RAB_GetGBufferSurface(idx, false);
 
@@ -83,7 +83,7 @@ RTXDI_DIReservoir RTXDI_DISpatialResamplingWithPairwiseMIS(
 
         // The surfaces are similar enough so we *can* reuse a neighbor from this pixel, so load it.
         RTXDI_DIReservoir neighborSample = RTXDI_LoadDIReservoir(reservoirParams,
-            RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField), sourceBufferIndex);
+            RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField), sourceBufferIndex);
         neighborSample.spatialDistance += spatialOffset;
 
         if (RTXDI_IsValidDIReservoir(neighborSample))
@@ -134,7 +134,7 @@ RTXDI_DIReservoir RTXDI_DISpatialResampling(
     RAB_Surface centerSurface,
     RTXDI_DIReservoir centerSample,
     inout RTXDI_RandomSamplerState rng,
-    RTXDI_RuntimeParameters params,
+    RTXDI_RuntimeParameters rParams,
     RTXDI_ReservoirBufferParameters reservoirParams,
     uint sourceBufferIndex,
     RTXDI_DISpatialResamplingParameters sparams,
@@ -143,7 +143,7 @@ RTXDI_DIReservoir RTXDI_DISpatialResampling(
     if (sparams.biasCorrectionMode == RTXDI_BIAS_CORRECTION_PAIRWISE)
     {
         return RTXDI_DISpatialResamplingWithPairwiseMIS(pixelPosition, centerSurface, 
-            centerSample, rng, params, reservoirParams, sourceBufferIndex, sparams, selectedLightSample);
+            centerSample, rng, rParams, reservoirParams, sourceBufferIndex, sparams, selectedLightSample);
     }
 
     RTXDI_DIReservoir state = RTXDI_EmptyDIReservoir();
@@ -163,7 +163,7 @@ RTXDI_DIReservoir RTXDI_DISpatialResampling(
 
     RTXDI_CombineDIReservoirs(state, centerSample, /* random = */ 0.5f, centerSample.targetPdf);
 
-    uint startIdx = uint(RTXDI_GetNextRandom(rng) * params.neighborOffsetMask);
+    uint startIdx = uint(RTXDI_GetNextRandom(rng) * rParams.neighborOffsetMask);
     
     uint i;
     uint numSpatialSamples = sparams.numSamples;
@@ -181,13 +181,13 @@ RTXDI_DIReservoir RTXDI_DISpatialResampling(
     for (i = 0; i < numSpatialSamples; ++i)
     {
         // Get screen-space location of neighbor
-        uint sampleIdx = (startIdx + i) & params.neighborOffsetMask;
+        uint sampleIdx = (startIdx + i) & rParams.neighborOffsetMask;
         int2 spatialOffset = int2(float2(RTXDI_NEIGHBOR_OFFSETS_BUFFER[sampleIdx].xy) * sparams.samplingRadius);
         int2 idx = int2(pixelPosition) + spatialOffset;
 
         idx = RAB_ClampSamplePositionIntoView(idx, false);
 
-        RTXDI_ActivateCheckerboardPixel(idx, false, params.activeCheckerboardField);
+        RTXDI_ActivateCheckerboardPixel(idx, false, rParams.activeCheckerboardField);
 
         RAB_Surface neighborSurface = RAB_GetGBufferSurface(idx, false);
 
@@ -202,7 +202,7 @@ RTXDI_DIReservoir RTXDI_DISpatialResampling(
         if (sparams.enableMaterialSimilarityTest && !RAB_AreMaterialsSimilar(RAB_GetMaterial(centerSurface), RAB_GetMaterial(neighborSurface)))
             continue;
 
-        uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField);
+        uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField);
 
         RTXDI_DIReservoir neighborSample = RTXDI_LoadDIReservoir(reservoirParams,
             neighborReservoirPos, sourceBufferIndex);
@@ -251,14 +251,14 @@ RTXDI_DIReservoir RTXDI_DISpatialResampling(
                 // If we skipped this neighbor above, do so again.
                 if ((cachedResult & (1u << uint(i))) == 0) continue;
 
-                uint sampleIdx = (startIdx + i) & params.neighborOffsetMask;
+                uint sampleIdx = (startIdx + i) & rParams.neighborOffsetMask;
 
                 // Get the screen-space location of our neighbor
                 int2 idx = int2(pixelPosition) + int2(float2(RTXDI_NEIGHBOR_OFFSETS_BUFFER[sampleIdx].xy) * sparams.samplingRadius);
 
                 idx = RAB_ClampSamplePositionIntoView(idx, false);
 
-                RTXDI_ActivateCheckerboardPixel(idx, false, params.activeCheckerboardField);
+                RTXDI_ActivateCheckerboardPixel(idx, false, rParams.activeCheckerboardField);
 
                 // Load our neighbor's G-buffer
                 RAB_Surface neighborSurface = RAB_GetGBufferSurface(idx, false);
@@ -279,7 +279,7 @@ RTXDI_DIReservoir RTXDI_DISpatialResampling(
                 }
 #endif
 
-                uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField);
+                uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField);
 
                 RTXDI_DIReservoir neighborSample = RTXDI_LoadDIReservoir(reservoirParams,
                     neighborReservoirPos, sourceBufferIndex);

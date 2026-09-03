@@ -20,21 +20,6 @@
 #include "Rtxdi/Utils/SampledLightData.hlsli"
 
 //
-// define-style interface for broad compatibility
-// RTXDI_PathTracerContext lays out the interface
-// The InitialSampling and HybridShift variants contain the specialized implementations
-//
-
-#if defined(RTXDI_RESTIR_PT_INITIAL_SAMPLING)
-#include "InitialSamplingPathTracerContext.hlsli"
-#elif defined(RTXDI_RESTIR_PT_HYBRID_SHIFT)
-#include "HybridShiftPathTracerContext.hlsli"
-#else
-#define RTXDI_NO_RESTIR_PT_CONTEXT
-#endif
-
-#if !defined(RTXDI_NO_RESTIR_PT_CONTEXT)
-//
 // Principal interface between the path tracer and ReSTIR PT
 // Responsible for recording information about the path and
 //    the reconnectibility of vertices along it.
@@ -42,6 +27,7 @@
 // Functions are laid out in the order they are called from
 //    the path tracing loop
 //
+template<typename PTContextType>
 struct RTXDI_PathTracerContext
 {
     //
@@ -87,9 +73,9 @@ struct RTXDI_PathTracerContext
     // The context needs to know about the Russian roulette
     // continuation probability to keep resampling unbiased
     //
-    void RecordRussianRouletteProbability(float RRProb)
+    void RecordRussianRouletteProbability(float rrProb)
     {
-        ctx.RecordRussianRouletteProbability(RRProb);
+        ctx.RecordRussianRouletteProbability(rrProb);
     }
 
     //
@@ -106,9 +92,9 @@ struct RTXDI_PathTracerContext
     // Sets the outgoing ray direction for the path tracer from the
     //     current surface.
     //
-    void SetContinuationRay(RayDesc cr)
+    void SetContinuationRay(RayDesc continuationRay)
     {
-        ctx.SetContinuationRay(cr);
+        ctx.SetContinuationRay(continuationRay);
     }
 
     //
@@ -166,9 +152,9 @@ struct RTXDI_PathTracerContext
     //     RecordPathIntersection() for tracking reconnection data.
     // Call after RecordPathIntersection()
     //
-    bool RecordEmissiveLightSample(float3 radianceFromEmissiveSurface, RAB_Surface prevSurface, inout RTXDI_RandomSamplerState RandContext)
+    bool RecordEmissiveLightSample(float3 radianceFromEmissiveSurface, RAB_Surface prevSurface, inout RTXDI_RandomSamplerState rng)
     {
-        return ctx.RecordEmissiveLightSample(radianceFromEmissiveSurface, prevSurface, RandContext);
+        return ctx.RecordEmissiveLightSample(radianceFromEmissiveSurface, prevSurface, rng);
     }
 
     //
@@ -191,9 +177,9 @@ struct RTXDI_PathTracerContext
                               in const float neePdf,
                               in const float scatterPdf,
                               in const RAB_LightSample lightSample,
-                              inout RTXDI_RandomSamplerState randContext)
+                              inout RTXDI_RandomSamplerState rng)
     {
-        return ctx.RecordNeeLightSample(sampledLightData, radianceFromLights, neePdf, scatterPdf, lightSample, randContext);
+        return ctx.RecordNeeLightSample(sampledLightData, radianceFromLights, neePdf, scatterPdf, lightSample, rng);
     }
 
     void RecordPathRadianceMiss(inout RTXDI_RandomSamplerState rng)
@@ -208,21 +194,21 @@ struct RTXDI_PathTracerContext
         return ctx.RecordEnvironmentMapLightSample(environmentMapRadiance, prevSurface, rng);
     }
 
-    float calculateRISWeight(float3 targetFunctionOverP)
+    float CalculateRISWeight(float3 targetFunctionOverP)
     {
-        return ctx.calculateRISWeight(targetFunctionOverP);
+        return ctx.CalculateRISWeight(targetFunctionOverP);
     }
 
-    bool RISStreamPathSample(uint PathLength,
-                             float3 CurrentLightRadiance,
+    bool RISStreamPathSample(uint pathLength,
+                             float3 currentLightRadiance,
                              inout RTXDI_RandomSamplerState rng,
-                             uint RcVertexLength,
-                             bool IsNEE,
-                             float NeePdf,
-                             float3 PackedLightData,
-                             float PartialJacobian)
+                             uint rcVertexLength,
+                             bool isNee,
+                             float neePdf,
+                             float3 packedLightData,
+                             float partialJacobian)
     {
-        return ctx.RISStreamPathSample(PathLength, CurrentLightRadiance, rng, RcVertexLength, IsNEE, NeePdf, PackedLightData, PartialJacobian);
+        return ctx.RISStreamPathSample(pathLength, currentLightRadiance, rng, rcVertexLength, isNee, neePdf, packedLightData, partialJacobian);
     }
 
     bool IsPathTerminated()
@@ -290,8 +276,16 @@ struct RTXDI_PathTracerContext
     }
 
     //
+    // Internal functions
     //
+
     //
+    // Must be called by runtime before sending to RAB_PathTrace
+    //
+    void Init(RTXDI_PathTracerContextParameters ptParams, const RAB_Surface primarySurface, inout RTXDI_PathTracerRandomContext ptRandContext)
+    {
+        ctx.Init(ptParams, primarySurface, ptRandContext);
+    }
 
     float3 GetRadiance()
     {
@@ -300,32 +294,32 @@ struct RTXDI_PathTracerContext
 
     float GetRunningWeightSum()
     {
-        return ctx.RunningWeightSum;
+        return ctx.runningWeightSum;
     }
 
     float GetSelectedPartialJacobian()
     {
-        return ctx.SelectedPartialJacobian;
+        return ctx.selectedPartialJacobian;
     }
 
     uint GetSelectedPathLength()
     {
-        return ctx.SelectedPathLength;
+        return ctx.selectedPathLength;
     }
 
     RAB_Surface GetSelectedRcSurface()
     {
-        return ctx.SelectedRcSurface;
+        return ctx.selectedRcSurface;
     }
 
     uint GetSelectedRcVertexLength()
     {
-        return ctx.SelectedRcVertexLength;
+        return ctx.selectedRcVertexLength;
     }
 
     float GetSelectedRcWiPdf()
     {
-        return ctx.SelectedRcWiPdf;
+        return ctx.selectedRcWiPdf;
     }
 
     float3 GetSelectedTargetFunction()
@@ -405,9 +399,9 @@ struct RTXDI_PathTracerContext
 
     // Hybrid shift functions
 
-    void SetPathTermination(bool Value)
+    void SetPathTermination(bool value)
     {
-        ctx.SetPathTermination(Value);
+        ctx.SetPathTermination(value);
     }
 
     bool IsPathTermination()
@@ -417,9 +411,9 @@ struct RTXDI_PathTracerContext
 
     // PT Base Functions
 
-    void SetIsLastVertexFar(bool Value)
+    void SetIsLastVertexFar(bool value)
     {
-        ctx.SetIsLastVertexFar(Value);
+        ctx.SetIsLastVertexFar(value);
     }
 
     bool IsLastVertexFar()
@@ -427,9 +421,9 @@ struct RTXDI_PathTracerContext
         return ctx.IsLastVertexFar();
     }
 
-    void SetIsLastVertexRough(bool Value)
+    void SetIsLastVertexRough(bool value)
     {
-        ctx.SetIsLastVertexRough(Value);
+        ctx.SetIsLastVertexRough(value);
     }
 
     bool IsLastVertexRough()
@@ -442,27 +436,15 @@ struct RTXDI_PathTracerContext
         return ctx.NoMainPathRcVertex();
     }
 
-#if defined(RTXDI_RESTIR_PT_INITIAL_SAMPLING)
-    RTXDI_InitialSamplingPathTracerContext ctx;
-#elif defined(RTXDI_RESTIR_PT_HYBRID_SHIFT)
-    RTXDI_HybridShiftPathTracerContext ctx;
-#endif
+    PTContextType ctx;
 };
 
-RTXDI_PathTracerContext RTXDI_InitializePathTracerContext(
-    const RTXDI_PathTracerContextParameters ptParams,
-    const RAB_Surface primarySurface,
-    inout RTXDI_PathTracerRandomContext ptRandContext)
+template<typename PTContextType>
+RTXDI_PathTracerContext<PTContextType> RTXDI_InitializePathTracerContext(RTXDI_PathTracerContextParameters ptParams, const RAB_Surface primarySurface, inout RTXDI_PathTracerRandomContext ptRandContext)
 {
-    RTXDI_PathTracerContext context = (RTXDI_PathTracerContext)0;
-#if defined(RTXDI_RESTIR_PT_INITIAL_SAMPLING)
-    context.ctx = RTXDI_InitializeInitialSamplingPathTracerContext(ptParams, primarySurface, ptRandContext);
-#elif defined(RTXDI_RESTIR_PT_HYBRID_SHIFT)
-    context.ctx = RTXDI_InitializeHybridShiftPathTracerContext(ptParams, primarySurface, ptRandContext);
-#endif
-    return context;
+    RTXDI_PathTracerContext<PTContextType> ctx = (RTXDI_PathTracerContext<PTContextType>)0;
+    ctx.ctx.Init(ptParams, primarySurface, ptRandContext);
+    return ctx;
 }
-
-#endif // !defined(RTXDI_RESTIR_PT_HYBRID_SHIFT)
 
 #endif // RTXDI_PT_PATH_TRACING_CONTEXT_HLSLI

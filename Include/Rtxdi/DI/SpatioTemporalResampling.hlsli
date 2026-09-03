@@ -40,7 +40,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResamplingWithPairwiseMIS(
     inout RTXDI_RandomSamplerState rng,
     float3 screenSpaceMotion,
     uint sourceBufferIndex,
-    RTXDI_RuntimeParameters params,
+    RTXDI_RuntimeParameters rParams,
     RTXDI_ReservoirBufferParameters reservoirParams,
     RTXDI_DISpatioTemporalResamplingParameters stparams,
     out int2 temporalSamplePixelPos,
@@ -48,7 +48,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResamplingWithPairwiseMIS(
 {
     uint historyLimit = min(RTXDI_PackedDIReservoir_MaxM, uint(stparams.maxHistoryLength * curSample.M));
 
-    // Backproject this pixel to last frame
+    // Backproject this pixel to the previous frame
     float3 motion = screenSpaceMotion;
     if (!stparams.enablePermutationSampling)
     {
@@ -61,7 +61,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResamplingWithPairwiseMIS(
     temporalSamplePixelPos = int2(-1, -1);
     RAB_Surface temporalSurface = RAB_EmptySurface();
     bool foundTemporalSurface = false;                                                 // Found a valid backprojection?
-    const float temporalSearchRadius = (params.activeCheckerboardField == 0) ? 4 : 8;  // How far to search for a match when backprojecting
+    const float temporalSearchRadius = (rParams.activeCheckerboardField == 0) ? 4 : 8;  // How far to search for a match when backprojecting
     int2 temporalSpatialOffset = int2(0, 0);                                           // Offset for the (central) backprojected pixel
 
     // Try to find a matching surface in the neighborhood of the centrol reprojected pixel
@@ -79,9 +79,9 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResamplingWithPairwiseMIS(
             RTXDI_ApplyPermutationSampling(centralIdx, stparams.uniformRandomNumber);
         }
 
-        RTXDI_ActivateCheckerboardPixel(centralIdx, true, params.activeCheckerboardField);
+        RTXDI_ActivateCheckerboardPixel(centralIdx, true, rParams.activeCheckerboardField);
 
-        // Grab shading / g-buffer data from last frame
+        // Grab shading / g-buffer data from the previous frame
         temporalSurface = RAB_GetGBufferSurface(centralIdx, true);
         if (!RAB_IsSurfaceValid(temporalSurface))
             continue;
@@ -112,7 +112,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResamplingWithPairwiseMIS(
 
     // Load the "temporal" reservoir at the temporally backprojected "central" pixel
     RTXDI_DIReservoir prevSample = RTXDI_LoadDIReservoir(reservoirParams,
-        RTXDI_PixelPosToReservoirPos(centralIdx, params.activeCheckerboardField), sourceBufferIndex);
+        RTXDI_PixelPosToReservoirPos(centralIdx, rParams.activeCheckerboardField), sourceBufferIndex);
     prevSample.M = min(prevSample.M, historyLimit);
     prevSample.spatialDistance += temporalSpatialOffset;
     prevSample.age += 1;
@@ -140,10 +140,10 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResamplingWithPairwiseMIS(
     }
 
     // Look for valid (spatiotemporal) neighbors and stream them through the reservoir via pairwise MIS
-    uint startIdx = uint(RTXDI_GetNextRandom(rng) * params.neighborOffsetMask);
+    uint startIdx = uint(RTXDI_GetNextRandom(rng) * rParams.neighborOffsetMask);
     for (i = 1; i < numSpatialSamples; ++i)
     {
-        uint sampleIdx = (startIdx + i) & params.neighborOffsetMask;
+        uint sampleIdx = (startIdx + i) & rParams.neighborOffsetMask;
         int2 spatialOffset = int2(float2(RTXDI_NEIGHBOR_OFFSETS_BUFFER[sampleIdx].xy) * stparams.samplingRadius);
         int2 idx = prevPos + spatialOffset;
 
@@ -152,7 +152,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResamplingWithPairwiseMIS(
 
         idx = RAB_ClampSamplePositionIntoView(idx, false);
         
-        RTXDI_ActivateCheckerboardPixel(idx, false, params.activeCheckerboardField);
+        RTXDI_ActivateCheckerboardPixel(idx, false, rParams.activeCheckerboardField);
 
         RAB_Surface neighborSurface = RAB_GetGBufferSurface(idx, true);
 
@@ -170,7 +170,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResamplingWithPairwiseMIS(
 
         // The surfaces are similar enough so we *can* reuse a neighbor from this pixel, so load it.
         RTXDI_DIReservoir neighborSample = RTXDI_LoadDIReservoir(reservoirParams,
-            RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField), sourceBufferIndex);
+            RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField), sourceBufferIndex);
 
         if (RTXDI_IsValidDIReservoir(prevSample))
         {
@@ -231,7 +231,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResampling(
     inout RTXDI_RandomSamplerState rng,
     float3 screenSpaceMotion,
     uint sourceBufferIndex,
-    RTXDI_RuntimeParameters params,
+    RTXDI_RuntimeParameters rParams,
     RTXDI_ReservoirBufferParameters reservoirParams,
     RTXDI_DISpatioTemporalResamplingParameters stparams,
     out int2 temporalSamplePixelPos,
@@ -240,7 +240,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResampling(
     if (stparams.biasCorrectionMode == RTXDI_BIAS_CORRECTION_PAIRWISE)
     {
         return RTXDI_DISpatioTemporalResamplingWithPairwiseMIS(pixelPosition, surface,
-            curSample, rng, screenSpaceMotion, sourceBufferIndex, params, reservoirParams, stparams, temporalSamplePixelPos, selectedLightSample);
+            curSample, rng, screenSpaceMotion, sourceBufferIndex, rParams, reservoirParams, stparams, temporalSamplePixelPos, selectedLightSample);
     }
 
     uint historyLimit = min(RTXDI_PackedDIReservoir_MaxM, uint(stparams.maxHistoryLength * curSample.M));
@@ -257,9 +257,9 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResampling(
     RTXDI_DIReservoir state = RTXDI_EmptyDIReservoir();
     RTXDI_CombineDIReservoirs(state, curSample, /* random = */ 0.5, curSample.targetPdf);
 
-    uint startIdx = uint(RTXDI_GetNextRandom(rng) * params.neighborOffsetMask);
+    uint startIdx = uint(RTXDI_GetNextRandom(rng) * rParams.neighborOffsetMask);
 
-    // Backproject this pixel to last frame
+    // Backproject this pixel to the previous frame
     float3 motion = screenSpaceMotion;
 
     if (!stparams.enablePermutationSampling)
@@ -276,7 +276,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResampling(
 
     RAB_Surface temporalSurface = RAB_EmptySurface();
     bool foundTemporalSurface = false;
-    const float temporalSearchRadius = (params.activeCheckerboardField == 0) ? 4 : 8;
+    const float temporalSearchRadius = (rParams.activeCheckerboardField == 0) ? 4 : 8;
     int2 temporalSpatialOffset = int2(0, 0);
 
     // Try to find a matching surface in the neighborhood of the reprojected pixel
@@ -296,9 +296,9 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResampling(
             RTXDI_ApplyPermutationSampling(idx, stparams.uniformRandomNumber);
         }
 
-        RTXDI_ActivateCheckerboardPixel(idx, true, params.activeCheckerboardField);
+        RTXDI_ActivateCheckerboardPixel(idx, true, rParams.activeCheckerboardField);
 
-        // Grab shading / g-buffer data from last frame
+        // Grab shading / g-buffer data from the previous frame
         temporalSurface = RAB_GetGBufferSurface(idx, true);
         if (!RAB_IsSurfaceValid(temporalSurface))
             continue;
@@ -342,14 +342,14 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResampling(
         }
         else
         {
-            uint sampleIdx = (startIdx + i) & params.neighborOffsetMask;
+            uint sampleIdx = (startIdx + i) & rParams.neighborOffsetMask;
             spatialOffset = int2(float2(RTXDI_NEIGHBOR_OFFSETS_BUFFER[sampleIdx].xy) * stparams.samplingRadius);
 
             idx = prevPos + spatialOffset;
 
             idx = RAB_ClampSamplePositionIntoView(idx, true);
 
-            RTXDI_ActivateCheckerboardPixel(idx, true, params.activeCheckerboardField);
+            RTXDI_ActivateCheckerboardPixel(idx, true, rParams.activeCheckerboardField);
 
             temporalSurface = RAB_GetGBufferSurface(idx, true);
 
@@ -367,7 +367,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResampling(
         
         cachedResult |= (1u << uint(i));
 
-        uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField);
+        uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField);
 
         RTXDI_DIReservoir prevSample = RTXDI_LoadDIReservoir(reservoirParams,
             neighborReservoirPos, sourceBufferIndex);
@@ -449,7 +449,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResampling(
                     // If we skipped this neighbor above, do so again.
                     if ((cachedResult & (1u << uint(i))) == 0) continue;
 
-                    uint sampleIdx = (startIdx + i) & params.neighborOffsetMask;
+                    uint sampleIdx = (startIdx + i) & rParams.neighborOffsetMask;
 
                     // Get the screen-space location of our neighbor
                     int2 spatialOffset = (i == 0 && foundTemporalSurface) 
@@ -462,7 +462,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResampling(
                         idx = RAB_ClampSamplePositionIntoView(idx, true);
                     }
 
-                    RTXDI_ActivateCheckerboardPixel(idx, true, params.activeCheckerboardField);
+                    RTXDI_ActivateCheckerboardPixel(idx, true, rParams.activeCheckerboardField);
 
                     // Load our neighbor's G-buffer
                     RAB_Surface neighborSurface = RAB_GetGBufferSurface(idx, true);
@@ -490,7 +490,7 @@ RTXDI_DIReservoir RTXDI_DISpatioTemporalResampling(
                     }
 #endif
 
-                    uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField);
+                    uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField);
 
                     RTXDI_DIReservoir prevSample = RTXDI_LoadDIReservoir(reservoirParams,
                         neighborReservoirPos, sourceBufferIndex);

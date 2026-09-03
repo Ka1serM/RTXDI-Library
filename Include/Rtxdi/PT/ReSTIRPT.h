@@ -19,7 +19,9 @@
 namespace rtxdi
 {
 
-static constexpr uint32_t c_NumReSTIRPTReservoirBuffers = 2;
+// Slots 0 and 1 are used for ping-pong resampling I/O; slot 2 preserves the unresampled
+// initial-sampling reservoir for use by the decorrelation fallback in final shading.
+static constexpr uint32_t c_NumReSTIRPTReservoirBuffers = 3;
 
 struct ReSTIRPTStaticParameters
 {
@@ -38,11 +40,17 @@ enum class ReSTIRPT_ResamplingMode : uint32_t
 
 RTXDI_PTBufferIndices GetDefaultReSTIRPTBufferIndices();
 RTXDI_PTInitialSamplingParameters GetDefaultReSTIRPTInitialSamplingParams();
-RTXDI_PTTemporalResamplingParameters GetDefaultReSTIRPTTemporalResamplingParams();
 RTXDI_PTReconnectionParameters GetDefaultReSTIRPTReconnectionParameters();
 RTXDI_PTHybridShiftPerFrameParameters GetDefaultReSTIRPTHybridShiftParams();
-RTXDI_BoilingFilterParameters GetDefaultReSTIRPTBoilingFilterParams();
-RTXDI_PTSpatialResamplingParameters GetDefaultReSTIRPTSpatialResamplingParams();
+
+RTXDI_PTDecorrelationParameters GetDefaultReSTIRPTDecorrelationParams(bool dlssRREnabled = false);
+RTXDI_PTTemporalResamplingParameters GetDefaultReSTIRPTTemporalResamplingParams(bool dlssRREnabled = false);
+RTXDI_BoilingFilterParameters GetDefaultReSTIRPTBoilingFilterParams(bool dlssRREnabled = false);
+RTXDI_PTSpatialResamplingParameters GetDefaultReSTIRPTSpatialResamplingParams(bool dlssRREnabled = false);
+
+bool NeedsDuplicationMap(
+    const RTXDI_PTTemporalResamplingParameters& temporalResampling,
+    const RTXDI_PTDecorrelationParameters& decorrelation);
 
 class ReSTIRPTContext
 {
@@ -56,6 +64,7 @@ public:
     ReSTIRPT_ResamplingMode GetResamplingMode() const;
     RTXDI_PTBufferIndices GetBufferIndices() const;
     RTXDI_PTInitialSamplingParameters GetInitialSamplingParameters() const;
+    RTXDI_PTDecorrelationParameters GetDecorrelationParameters() const;
     RTXDI_PTHybridShiftPerFrameParameters GetHybridShiftParameters() const;
     RTXDI_PTReconnectionParameters GetReconnectionParameters() const;
     RTXDI_PTTemporalResamplingParameters GetTemporalResamplingParameters() const;
@@ -65,6 +74,7 @@ public:
     void SetFrameIndex(uint32_t frameIndex);
     void SetResamplingMode(ReSTIRPT_ResamplingMode resamplingMode);
     void SetInitialSamplingParameters(const RTXDI_PTInitialSamplingParameters& initialSamplingParams);
+    void SetDecorrelationParameters(const RTXDI_PTDecorrelationParameters& decorrelationParams);
     void SetHybridShiftParameters(const RTXDI_PTHybridShiftPerFrameParameters& hybridShiftParams);
     void SetReconnectionParameters(const RTXDI_PTReconnectionParameters& reconnectionParams);
     void SetTemporalResamplingParameters(const RTXDI_PTTemporalResamplingParameters& temporalResamplingParams);
@@ -79,6 +89,7 @@ private:
     ReSTIRPT_ResamplingMode m_resamplingMode;
     RTXDI_PTBufferIndices m_bufferIndices;
     RTXDI_PTInitialSamplingParameters m_initialSamplingParams;
+    RTXDI_PTDecorrelationParameters m_decorrelationParams;
     RTXDI_PTHybridShiftPerFrameParameters m_hybridShiftParams;
     RTXDI_PTReconnectionParameters m_reconnectionParams;
     RTXDI_PTTemporalResamplingParameters m_temporalResamplingParams;

@@ -44,31 +44,31 @@ namespace rtxdi
 
     void ReGIRContext::ComputeGridLightSlotCount()
     {
-        m_regirGridCalculatedParameters.lightSlotCount = m_regirStaticParameters.gridParameters.GridSize.x
-            * m_regirStaticParameters.gridParameters.GridSize.y
-            * m_regirStaticParameters.gridParameters.GridSize.z
-            * m_regirStaticParameters.LightsPerCell;
+        m_regirGridCalculatedParameters.lightSlotCount = m_regirStaticParameters.gridParameters.gridSize.x
+            * m_regirStaticParameters.gridParameters.gridSize.y
+            * m_regirStaticParameters.gridParameters.gridSize.z
+            * m_regirStaticParameters.lightsPerCell;
     }
 
     void ReGIRContext::AllocateRISBufferSegment(RISBufferSegmentAllocator& risBufferSegmentAllocator)
     {
-        switch (m_regirStaticParameters.Mode)
+        switch (m_regirStaticParameters.mode)
         {
         default:
         case ReGIRMode::Disabled:
             m_regirCellOffset = 0;
             break;
         case ReGIRMode::Grid:
-            m_regirCellOffset = risBufferSegmentAllocator.allocateSegment(m_regirGridCalculatedParameters.lightSlotCount);
+            m_regirCellOffset = risBufferSegmentAllocator.AllocateSegment(m_regirGridCalculatedParameters.lightSlotCount);
             break;
         case ReGIRMode::Onion:
-            m_regirCellOffset = risBufferSegmentAllocator.allocateSegment(m_regirOnionCalculatedParameters.lightSlotCount);
+            m_regirCellOffset = risBufferSegmentAllocator.AllocateSegment(m_regirOnionCalculatedParameters.lightSlotCount);
         }
     }
 
     void ReGIRContext::InitializeOnion(const ReGIRStaticParameters& params)
     {
-        int numLayerGroups = std::max(1, std::min(RTXDI_ONION_MAX_LAYER_GROUPS, int(params.onionParameters.OnionDetailLayers)));
+        int numLayerGroups = std::max(1, std::min(RTXDI_ONION_MAX_LAYER_GROUPS, int(params.onionParameters.onionDetailLayers)));
 
         float innerRadius = 1.f;
 
@@ -78,7 +78,7 @@ namespace rtxdi
         for (int layerGroupIndex = 0; layerGroupIndex < numLayerGroups; layerGroupIndex++)
         {
             const int partitions = layerGroupIndex * 4 + 8;
-            const int layerCount = (layerGroupIndex < numLayerGroups - 1) ? 1 : int(params.onionParameters.OnionCoverageLayers) + 1;
+            const int layerCount = (layerGroupIndex < numLayerGroups - 1) ? 1 : int(params.onionParameters.onionCoverageLayers) + 1;
 
             const float radiusRatio = (float(partitions) + c_pi) / (float(partitions) - c_pi);
             const float outerRadius = innerRadius * powf(radiusRatio, float(layerCount));
@@ -125,7 +125,7 @@ namespace rtxdi
         }
 
         m_regirOnionCalculatedParameters.regirOnionCells = uint32_t(totalCells);
-        m_regirOnionCalculatedParameters.lightSlotCount = m_regirOnionCalculatedParameters.regirOnionCells * m_regirStaticParameters.LightsPerCell;
+        m_regirOnionCalculatedParameters.lightSlotCount = m_regirOnionCalculatedParameters.regirOnionCells * m_regirStaticParameters.lightsPerCell;
     }
 
     static float3 SphericalToCartesian(const float radius, const float azimuth, const float elevation)
@@ -226,7 +226,7 @@ namespace rtxdi
 
     uint32_t rtxdi::ReGIRContext::GetReGIRLightSlotCount() const
     {
-        switch (m_regirStaticParameters.Mode)
+        switch (m_regirStaticParameters.mode)
         {
         case ReGIRMode::Grid:
             return m_regirGridCalculatedParameters.lightSlotCount;
@@ -256,7 +256,7 @@ namespace rtxdi
         m_regirDynamicParameters = regirDynamicParameters;
     }
 
-    bool ReGIRContext::IsLocalLightPowerRISEnable() const
+    bool ReGIRContext::IsLocalLightPowerRISEnabled() const
     {
         return (m_regirDynamicParameters.presamplingMode == LocalLightReGIRPresamplingMode::Power_RIS) ||
                (m_regirDynamicParameters.fallbackSamplingMode == LocalLightReGIRFallbackSamplingMode::Power_RIS);

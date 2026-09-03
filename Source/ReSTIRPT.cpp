@@ -35,6 +35,21 @@ RTXDI_PTInitialSamplingParameters GetDefaultReSTIRPTInitialSamplingParams()
     return params;
 }
 
+RTXDI_PTDecorrelationParameters GetDefaultReSTIRPTDecorrelationParams(bool dlssRREnabled)
+{
+    RTXDI_PTDecorrelationParameters params = {};
+    params.decorrelationFactor = 0.4f;
+    params.decorrelationStagnancyExponent = 0.5f;
+    params.decorrelationEmaFactor = 0.2f;
+    params.fireflyReplacementFilterStrength = 0.7f;
+    params.fireflyReplacementBiasReduction = 1;
+    params.fireflyReplacementMultiplyBound = 15.0f;
+
+    params.decorrelationMode = dlssRREnabled ? RTXDI_PTDecorrelationMode::Stagnancy : RTXDI_PTDecorrelationMode::None;
+    params.fireflyReplacementFilterEnable = dlssRREnabled ? 1 : 0;
+    return params;
+}
+
 RTXDI_PTReconnectionParameters GetDefaultReSTIRPTReconnectionParameters()
 {
     RTXDI_PTReconnectionParameters reconnectionParams = {};
@@ -57,39 +72,56 @@ RTXDI_PTHybridShiftPerFrameParameters GetDefaultReSTIRPTHybridShiftParams()
     return hybridShiftParams;
 }
 
-RTXDI_PTTemporalResamplingParameters GetDefaultReSTIRPTTemporalResamplingParams()
+RTXDI_PTTemporalResamplingParameters GetDefaultReSTIRPTTemporalResamplingParams(bool dlssRREnabled)
 {
     RTXDI_PTTemporalResamplingParameters params = {};
     params.depthThreshold = 0.1f;
     params.enableFallbackSampling = true;
     params.enablePermutationSampling = false;
-    params.maxHistoryLength = 8;
     params.maxReservoirAge = 30;
     params.normalThreshold = 0.6f;
-    params.duplicationBasedHistoryReduction = false;
-    params.historyReductionStrength = 0.8f;
+    params.historyReductionStrength = 0.5f;
+
+    // DLSS-RR: longer history and duplication-based history reduction, with age-based rejection off
+    // (the reservoir age doubles as the duplication-map stagnancy signal in that mode).
+    params.maxHistoryLength = dlssRREnabled ? 20 : 8;
+    params.duplicationBasedHistoryReduction = dlssRREnabled ? 1 : 0;
+    params.enableAgeBasedRejection = dlssRREnabled ? 0 : 1;
     return params;
 }
 
-RTXDI_BoilingFilterParameters GetDefaultReSTIRPTBoilingFilterParams()
+RTXDI_BoilingFilterParameters GetDefaultReSTIRPTBoilingFilterParams(bool dlssRREnabled)
 {
     RTXDI_BoilingFilterParameters params = {};
     params.boilingFilterStrength = 0.2f;
-    params.enableBoilingFilter = true;
+    // DLSS-RR uses the final-shading firefly replacement instead of the temporal boiling filter.
+    params.enableBoilingFilter = dlssRREnabled ? 0 : 1;
     return params;
 }
 
-RTXDI_PTSpatialResamplingParameters GetDefaultReSTIRPTSpatialResamplingParams()
+RTXDI_PTSpatialResamplingParameters GetDefaultReSTIRPTSpatialResamplingParams(bool dlssRREnabled)
 {
     RTXDI_PTSpatialResamplingParameters params = {};
     params.numSpatialSamples = 1;
     params.depthThreshold = 0.1f;
     params.normalThreshold = 0.6f;
     params.samplingRadius = 32.0f;
-    params.duplicationBasedHistoryReduction = 0;
-    params.maxTemporalHistory = 8;
     params.numDisocclusionBoostSamples = 8;
+    params.enableSpatialHeuristicMode = 0;
+
+    params.duplicationBasedHistoryReduction = dlssRREnabled ? 1 : 0;
+    params.maxTemporalHistory = dlssRREnabled ? 20 : 8;
     return params;
+}
+
+bool NeedsDuplicationMap(
+    const RTXDI_PTTemporalResamplingParameters& temporalResampling,
+    const RTXDI_PTDecorrelationParameters& decorrelation)
+{
+    const bool stagnancyDecorrelation =
+        decorrelation.decorrelationMode == RTXDI_PTDecorrelationMode::Stagnancy &&
+        decorrelation.decorrelationFactor > 0.0f;
+    return temporalResampling.duplicationBasedHistoryReduction != 0 || stagnancyDecorrelation;
 }
 
 ReSTIRPTContext::ReSTIRPTContext(const ReSTIRPTStaticParameters& staticParams) :
@@ -99,6 +131,7 @@ ReSTIRPTContext::ReSTIRPTContext(const ReSTIRPTStaticParameters& staticParams) :
     m_resamplingMode(ReSTIRPT_ResamplingMode::None),
     m_bufferIndices({}),
     m_initialSamplingParams(GetDefaultReSTIRPTInitialSamplingParams()),
+    m_decorrelationParams(GetDefaultReSTIRPTDecorrelationParams()),
     m_hybridShiftParams(GetDefaultReSTIRPTHybridShiftParams()),
     m_reconnectionParams(GetDefaultReSTIRPTReconnectionParameters()),
     m_boilingFilterParameters(GetDefaultReSTIRPTBoilingFilterParams()),
@@ -136,6 +169,11 @@ RTXDI_PTBufferIndices ReSTIRPTContext::GetBufferIndices() const
 RTXDI_PTInitialSamplingParameters ReSTIRPTContext::GetInitialSamplingParameters() const
 {
     return m_initialSamplingParams;
+}
+
+RTXDI_PTDecorrelationParameters ReSTIRPTContext::GetDecorrelationParameters() const
+{
+    return m_decorrelationParams;
 }
 
 RTXDI_PTHybridShiftPerFrameParameters ReSTIRPTContext::GetHybridShiftParameters() const
@@ -181,6 +219,11 @@ void ReSTIRPTContext::SetInitialSamplingParameters(const RTXDI_PTInitialSampling
     m_initialSamplingParams = initialSamplingParams;
 }
 
+void ReSTIRPTContext::SetDecorrelationParameters(const RTXDI_PTDecorrelationParameters& decorrelationParams)
+{
+    m_decorrelationParams = decorrelationParams;
+}
+
 void ReSTIRPTContext::SetHybridShiftParameters(const RTXDI_PTHybridShiftPerFrameParameters& hybridShiftParams)
 {
     m_hybridShiftParams = hybridShiftParams;
@@ -209,6 +252,9 @@ void ReSTIRPTContext::SetSpatialResamplingParameters(const RTXDI_PTSpatialResamp
 
 void ReSTIRPTContext::UpdateBufferIndices()
 {
+    // reset all buffer indices to 0, such that inputBufferIndex != outputBufferIndex can be used to check if a pass is enabled
+    m_bufferIndices = {};
+
     switch (m_resamplingMode)
     {
     case rtxdi::ReSTIRPT_ResamplingMode::None:
@@ -236,5 +282,9 @@ void ReSTIRPTContext::UpdateBufferIndices()
         m_bufferIndices.finalShadingInputBufferIndex = 1;
         break;
     }
+
+    // Slot 2 is reserved as a copy of the unresampled initial-sampling reservoir so final shading
+    // can fall back to it when the decorrelation factor selects the initial sample.
+    m_bufferIndices.initialPathTracerPreservedBufferIndex = 2;
 }
 }

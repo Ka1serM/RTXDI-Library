@@ -31,6 +31,13 @@ enum class RTXDI_PTReconnectionMode : uint16_t
     Footprint = RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT,
 };
 
+enum class RTXDI_PTDecorrelationMode : uint32_t
+{
+    None = RTXDI_PT_DECORRELATION_MODE_NONE,
+    Uniform = RTXDI_PT_DECORRELATION_MODE_UNIFORM,
+    Stagnancy = RTXDI_PT_DECORRELATION_MODE_STAGNANCY,
+};
+
 //
 // Enums set by RTXDI before each invocation of
 // the RAB_PathTrace function.
@@ -49,6 +56,7 @@ enum class RTXDI_PTPathTraceInvocationType : uint16_t
 #else
 #define RTXDI_PTReconnectionMode uint16_t
 #define RTXDI_PTPathTraceInvocationType uint16_t
+#define RTXDI_PTDecorrelationMode uint32_t
 #endif
 
 struct RTXDI_PackedPTReservoir
@@ -73,7 +81,9 @@ struct RTXDI_PTBufferIndices
 
     uint32_t spatialResamplingOutputBufferIndex;
     uint32_t finalShadingInputBufferIndex;
-    uint32_t pad1;
+    // A dedicated reservoir slot that holds the unresampled initial-sampling output so it can still
+    // be read during final shading (used by the decorrelation mechanism to bypass temporal/spatial resampling).
+    uint32_t initialPathTracerPreservedBufferIndex;
     uint32_t pad2;
 };
 
@@ -82,7 +92,22 @@ struct RTXDI_PTInitialSamplingParameters
     uint32_t numInitialSamples;
     uint32_t maxBounceDepth;
     uint32_t maxRcVertexLength;
-    uint32_t pad;
+    uint32_t pad0;
+};
+
+// Final-shading decorrelation: fall back to the preserved unresampled initial-sampling reservoir, with
+// firefly replacement.
+struct RTXDI_PTDecorrelationParameters
+{
+    float decorrelationFactor;              // Fallback probability [0,1]; meaning depends on decorrelationMode.
+    float decorrelationStagnancyExponent;   // Stagnancy mode: exponent shaping the Stagnancy->probability curve.
+    float decorrelationEmaFactor;           // Stagnancy mode: EMA blend for the smoothed duplication map [0,1].
+    RTXDI_PTDecorrelationMode decorrelationMode; // None / Uniform / Stagnancy (RTXDI_PT_DECORRELATION_MODE_*).
+
+    uint32_t fireflyReplacementFilterEnable;   // Enable firefly (boiling-filter) detection. 0/1.
+    float fireflyReplacementFilterStrength;    // Firefly rejection strength [0,1].
+    uint32_t fireflyReplacementBiasReduction;    // Clamp replacement WeightSum on fresh reservoirs. 0/1.
+    float fireflyReplacementMultiplyBound;       // Clamp bound: replacement WeightSum <= bound * prev WeightSum.
 };
 
 struct RTXDI_PTReconnectionParameters
@@ -123,8 +148,8 @@ struct RTXDI_PTTemporalResamplingParameters
 
     uint32_t duplicationBasedHistoryReduction;
     float    historyReductionStrength;
+    uint32_t enableAgeBasedRejection;
     uint32_t pad1;
-    uint32_t pad2;
 };
 
 struct RTXDI_PTSpatialResamplingParameters
@@ -137,7 +162,7 @@ struct RTXDI_PTSpatialResamplingParameters
     float    samplingRadius;
     float    normalThreshold;
     float    depthThreshold;
-    uint32_t pad1;
+    uint32_t enableSpatialHeuristicMode;
 };
 
 struct RTXDI_PTParameters
@@ -145,6 +170,7 @@ struct RTXDI_PTParameters
     RTXDI_ReservoirBufferParameters reservoirBuffer;
     RTXDI_PTBufferIndices bufferIndices;
     RTXDI_PTInitialSamplingParameters initialSampling;
+    RTXDI_PTDecorrelationParameters decorrelation;
     RTXDI_PTReconnectionParameters reconnection;
     RTXDI_PTTemporalResamplingParameters temporalResampling;
     RTXDI_PTHybridShiftPerFrameParameters hybridShift;

@@ -13,13 +13,7 @@
 #ifndef RTXDI_RESTIR_PT_INITIAL_SAMPLING_HLSLI
 #define RTXDI_RESTIR_PT_INITIAL_SAMPLING_HLSLI
 
-//
-// This define selects the correct PathTracerContext implementation
-// to be used for the initial sampling pass
-// The other implementation is used for hybrid shift during resampling
-//
-#define RTXDI_RESTIR_PT_INITIAL_SAMPLING
-
+#include "Rtxdi/PT/InitialSamplingPathTracerContext.hlsli"
 #include "Rtxdi/PT/PathReconnectibility.hlsli"
 #include "Rtxdi/PT/PathTracerContext.hlsli"
 #include "Rtxdi/PT/PathTracerRandomContext.hlsli"
@@ -37,7 +31,7 @@ RTXDI_PTInitialSamplingRuntimeParameters RTXDI_EmptyPTInitialSamplingRuntimePara
     return (RTXDI_PTInitialSamplingRuntimeParameters)0;
 }
 
-RTXDI_PTReservoir InitializePTReservoirFromPTContext(RTXDI_PathTracerContext ctx, RTXDI_RandomSamplerState cachedReplayRng)
+RTXDI_PTReservoir InitializePTReservoirFromPTContext(RTXDI_PathTracerContext<RTXDI_InitialSamplingPathTracerContext> ctx, RTXDI_RandomSamplerState cachedReplayRng)
 {
     RTXDI_PTReservoir reservoir = RTXDI_MakePTReservoir(
             ctx.GetSelectedTargetFunction(), // target function (to be filled later)
@@ -52,38 +46,38 @@ RTXDI_PTReservoir InitializePTReservoirFromPTContext(RTXDI_PathTracerContext ctx
             ctx.GetRadiance(),
             0.f);
 
-    const float PHat = RTXDI_Luminance(ctx.GetSelectedTargetFunction());
-    reservoir.WeightSum = (PHat == 0.f) ? 0.f : (ctx.GetRunningWeightSum() / PHat);
+    const float pHat = RTXDI_Luminance(ctx.GetSelectedTargetFunction());
+    reservoir.weightSum = (pHat == 0.f) ? 0.f : (ctx.GetRunningWeightSum() / pHat);
 
     return reservoir;
 }
 
 void FinalizeResampling(inout RTXDI_PTReservoir selectedReservoir, float3 selectedTargetFunction)
 {
-    const float NormalizationNumerator = 1.0;
-    const float NormalizationDenominator = RTXDI_Luminance(selectedTargetFunction) * selectedReservoir.M;
-    RTXDI_FinalizeResampling(selectedReservoir, NormalizationNumerator, NormalizationDenominator);
+    const float normalizationNumerator = 1.0;
+    const float normalizationDenominator = RTXDI_Luminance(selectedTargetFunction) * selectedReservoir.M;
+    RTXDI_FinalizePTResampling(selectedReservoir, normalizationNumerator, normalizationDenominator);
 }
 
 RTXDI_PathTracerContextParameters GetPTContextParams(
     RTXDI_PTInitialSamplingParameters initialSamplingParams,
     RTXDI_PTInitialSamplingRuntimeParameters isrParams,
-    RTXDI_PTReconnectionParameters rParams)
+    RTXDI_PTReconnectionParameters rcParams)
 {
     RTXDI_PathTracerContextParameters ctxParams = (RTXDI_PathTracerContextParameters)0;
     ctxParams.maxBounces = (uint16_t)initialSamplingParams.maxBounceDepth;
     ctxParams.maxRcVertexLength = (uint16_t)initialSamplingParams.maxRcVertexLength;
-    ctxParams.rParams = rParams;
-    ctxParams.rrParams.cameraPos = isrParams.cameraPos;
-    ctxParams.rrParams.prevCameraPos = isrParams.prevCameraPos;
-    ctxParams.rrParams.prevPrevCameraPos = isrParams.prevPrevCameraPos;
-    ctxParams.rrParams.isPrevFrame = false;
+    ctxParams.rcParams = rcParams;
+    ctxParams.rcrParams.cameraPos = isrParams.cameraPos;
+    ctxParams.rcrParams.prevCameraPos = isrParams.prevCameraPos;
+    ctxParams.rcrParams.prevPrevCameraPos = isrParams.prevPrevCameraPos;
+    ctxParams.rcrParams.isPrevFrame = false;
     return ctxParams;
 }
 
 RTXDI_PTReservoir GenerateInitialSamples(RTXDI_PTInitialSamplingParameters initialSamplingParams,
                                          RTXDI_PTInitialSamplingRuntimeParameters isrParams,
-                                         RTXDI_PTReconnectionParameters rParams,
+                                         RTXDI_PTReconnectionParameters rcParams,
                                          RTXDI_PathTracerRandomContext ptRandContext,
                                          RAB_Surface surface,
                                          inout RAB_PathTracerUserData ptud)
@@ -98,14 +92,14 @@ RTXDI_PTReservoir GenerateInitialSamples(RTXDI_PTInitialSamplingParameters initi
     {
         RTXDI_RandomSamplerState cachedRrRNG = ptRandContext.replayRandomSamplerState;
 
-        RTXDI_PathTracerContextParameters ctxParams = GetPTContextParams(initialSamplingParams, isrParams, rParams);
-        RTXDI_PathTracerContext ctx = RTXDI_InitializePathTracerContext(ctxParams, surface, ptRandContext);
+        RTXDI_PathTracerContextParameters ctxParams = GetPTContextParams(initialSamplingParams, isrParams, rcParams);
+        RTXDI_PathTracerContext<RTXDI_InitialSamplingPathTracerContext> ctx = RTXDI_InitializePathTracerContext<RTXDI_InitialSamplingPathTracerContext>(ctxParams, surface, ptRandContext);
 
         RAB_PathTrace(ctx, ptRandContext, ptud);
 		
         RTXDI_PTReservoir candidateReservoir = InitializePTReservoirFromPTContext(ctx, cachedRrRNG);
 
-        if(CombineReservoirs(selectedReservoir, candidateReservoir, RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState), ctx.GetSelectedTargetFunction()))
+        if(RTXDI_CombinePTReservoirs(selectedReservoir, candidateReservoir, RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState), ctx.GetSelectedTargetFunction()))
         {
             selectedTargetFunction = ctx.GetSelectedTargetFunction();
         }

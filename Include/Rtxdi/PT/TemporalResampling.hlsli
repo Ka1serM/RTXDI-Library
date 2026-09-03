@@ -65,7 +65,7 @@ int2 RTXDI_CalculateTemporalResamplingOffset(int sampleIdx, int radius)
     return int2(tmp0, tmp0 * tmp1) * int2(tmp2, tmp3) * radius;
 }
 
-int2 CalculateTemporalSurfacePosition(RTXDI_PTTemporalResamplingParameters tParams, RTXDI_RuntimeParameters params, int i, int temporalSampleStartIdx, int2 pixelPos, float radius, int2 prevPos, bool isFallbackSample)
+int2 CalculateTemporalSurfacePosition(RTXDI_PTTemporalResamplingParameters tParams, RTXDI_RuntimeParameters rParams, int i, int temporalSampleStartIdx, int2 pixelPos, float radius, int2 prevPos, bool isFallbackSample)
 {
     const bool isFirstSample = i == 0;
     int2 offset = int2(0, 0);
@@ -87,12 +87,12 @@ int2 CalculateTemporalSurfacePosition(RTXDI_PTTemporalResamplingParameters tPara
         RTXDI_ApplyPermutationSampling(idx, tParams.uniformRandomNumber);
     }
 
-    RTXDI_ActivateCheckerboardPixel(idx, true, params.activeCheckerboardField);
+    RTXDI_ActivateCheckerboardPixel(idx, true, rParams.activeCheckerboardField);
 
     return idx;
 }
 
-bool ValidTemporalSurface(RTXDI_PTTemporalResamplingParameters tParams,RAB_Surface surface, RAB_Surface temporalSurface, float expectedPrevLinearDepth, bool isFallbackSample)
+bool ValidTemporalSurface(RTXDI_PTTemporalResamplingParameters tParams, RAB_Surface curSurface, RAB_Surface temporalSurface, float expectedPrevLinearDepth, bool isFallbackSample)
 {
     if (!RAB_IsSurfaceValid(temporalSurface))
     {
@@ -100,14 +100,14 @@ bool ValidTemporalSurface(RTXDI_PTTemporalResamplingParameters tParams,RAB_Surfa
     }
 
     if (!isFallbackSample && !RTXDI_IsValidNeighbor(
-        RAB_GetSurfaceNormal(surface), RAB_GetSurfaceNormal(temporalSurface),
+        RAB_GetSurfaceNormal(curSurface), RAB_GetSurfaceNormal(temporalSurface),
         expectedPrevLinearDepth, RAB_GetSurfaceLinearDepth(temporalSurface),
         tParams.normalThreshold, tParams.depthThreshold))
     {
         return false;
     }
 
-    if (!RAB_AreMaterialsSimilar(RAB_GetMaterial(surface), RAB_GetMaterial(temporalSurface)))
+    if (!RAB_AreMaterialsSimilar(RAB_GetMaterial(curSurface), RAB_GetMaterial(temporalSurface)))
     {
         return false;
     }
@@ -116,35 +116,35 @@ bool ValidTemporalSurface(RTXDI_PTTemporalResamplingParameters tParams,RAB_Surfa
 }
 
 bool FindTemporalNeighbor_GI(const RTXDI_PTTemporalResamplingParameters tParams,
-                             const RTXDI_RuntimeParameters params,
+                             const RTXDI_RuntimeParameters rParams,
                              const RTXDI_ReservoirBufferParameters reservoirBufferParams,
                              const RTXDI_PTBufferIndices bufferIndices,
                              inout RTXDI_RandomSamplerState rng,
                              const int2 pixelPos,
                              const int2 prevPos,
-                             const RAB_Surface Surface,
+                             const RAB_Surface curSurface,
                              const float expectedPrevLinearDepth,
                              inout RAB_Surface temporalSurface,
                              inout RTXDI_PTReservoir temporalReservoir)
 {
     // Try to find a matching surface in the neighborhood of the reprojected pixel
-    const int temporalSampleCount = 5;
+    const int temporalSampleCount = 9;
     const int sampleCount = temporalSampleCount + (tParams.enableFallbackSampling ? 1 : 0);
-    const int radius = (params.activeCheckerboardField == 0) ? 1 : 2;
+    const int radius = (rParams.activeCheckerboardField == 0) ? 1 : 2;
     const int temporalSampleStartIdx = int(RTXDI_GetNextRandom(rng) * 8);
     for (int i = 0; i < sampleCount; i++)
     {
         const bool isFallbackSample = i == temporalSampleCount;
 
-        int2 temporalSurfacePos = CalculateTemporalSurfacePosition(tParams, params, i, temporalSampleStartIdx, pixelPos, radius, prevPos, isFallbackSample);
+        int2 temporalSurfacePos = CalculateTemporalSurfacePosition(tParams, rParams, i, temporalSampleStartIdx, pixelPos, radius, prevPos, isFallbackSample);
         temporalSurface = RAB_GetGBufferSurface(temporalSurfacePos, true);
 
-        if(!ValidTemporalSurface(tParams, Surface, temporalSurface, expectedPrevLinearDepth, isFallbackSample))
+        if(!ValidTemporalSurface(tParams, curSurface, temporalSurface, expectedPrevLinearDepth, isFallbackSample))
         {
             continue;
         }
 
-        uint2 prevReservoirPos = RTXDI_PixelPosToReservoirPos(temporalSurfacePos, params.activeCheckerboardField);
+        uint2 prevReservoirPos = RTXDI_PixelPosToReservoirPos(temporalSurfacePos, rParams.activeCheckerboardField);
         temporalReservoir = RTXDI_LoadPTReservoir(reservoirBufferParams, prevReservoirPos, bufferIndices.temporalResamplingInputBufferIndex);
 
         if (!RTXDI_IsValidPTReservoir(temporalReservoir))
@@ -160,7 +160,7 @@ bool FindTemporalNeighbor_GI(const RTXDI_PTTemporalResamplingParameters tParams,
 
 #elif NEIGHBOR_FIND_MODE == NEIGHBOR_FIND_MODE_IDENTITY
 
-bool FindTemporalNeighbor_Identity(RTXDI_RuntimeParameters runtimeParams,
+bool FindTemporalNeighbor_Identity(RTXDI_RuntimeParameters rParams,
                                    RTXDI_ReservoirBufferParameters reservoirBufferParams,
                                    RTXDI_PTBufferIndices bufferIndices,
                                    inout int2 prevReservoirPos,
@@ -177,7 +177,7 @@ bool FindTemporalNeighbor_Identity(RTXDI_RuntimeParameters runtimeParams,
         return false;
     }
 
-    prevReservoirPos = RTXDI_PixelPosToReservoirPos(temporalSampleIdx, runtimeParams.activeCheckerboardField);
+    prevReservoirPos = RTXDI_PixelPosToReservoirPos(temporalSampleIdx, rParams.activeCheckerboardField);
     temporalReservoir = RTXDI_LoadPTReservoir(reservoirBufferParams, prevReservoirPos, bufferIndices.temporalResamplingInputBufferIndex);
     if (!RTXDI_IsValidPTReservoir(temporalReservoir))
     {
@@ -189,57 +189,67 @@ bool FindTemporalNeighbor_Identity(RTXDI_RuntimeParameters runtimeParams,
 
 #endif
 
-bool FindTemporalNeighbor(RTXDI_PTTemporalResamplingParameters tParams, RTXDI_RuntimeParameters params, RTXDI_ReservoirBufferParameters bufferParams, RTXDI_PTBufferIndices bufferIndices, inout RTXDI_RandomSamplerState rng, int2 pixelPos, int2 prevPos, RAB_Surface Surface, float expectedPrevLinearDepth, inout RAB_Surface temporalSurface, inout RTXDI_PTReservoir PrevSample)
+bool FindTemporalNeighbor(RTXDI_PTTemporalResamplingParameters tParams,
+                          RTXDI_RuntimeParameters rParams,
+                          RTXDI_ReservoirBufferParameters bufferParams,
+                          RTXDI_PTBufferIndices bufferIndices,
+                          inout RTXDI_RandomSamplerState rng,
+                          int2 pixelPos,
+                          int2 prevPos,
+                          RAB_Surface curSurface,
+                          float expectedPrevLinearDepth,
+                          inout RAB_Surface temporalSurface,
+                          inout RTXDI_PTReservoir prevSample)
 {
 #if NEIGHBOR_FIND_MODE == NEIGHBOR_FIND_MODE_GI
-    return FindTemporalNeighbor_GI(tParams, params, bufferParams, bufferIndices, rng, pixelPos, prevPos, Surface, expectedPrevLinearDepth, temporalSurface, PrevSample);
+    return FindTemporalNeighbor_GI(tParams, rParams, bufferParams, bufferIndices, rng, pixelPos, prevPos, curSurface, expectedPrevLinearDepth, temporalSurface, prevSample);
 #elif NEIGHBOR_FIND_MODE == NEIGHBOR_FIND_MODE_IDENTITY
-    return FindTemporalNeighbor_Identity(params, bufferParams, bufferIndices, prevPos, pixelPos, Surface, temporalSurface, PrevSample);
+    return FindTemporalNeighbor_Identity(rParams, bufferParams, bufferIndices, prevPos, pixelPos, curSurface, temporalSurface, prevSample);
 #endif
 }
 
 bool ValidateTemporalNeighbor(const RTXDI_PTTemporalResamplingParameters tParams,
-                              inout RTXDI_PTReservoir PrevSample,
-                              const RAB_Surface Surface,
-                              const RAB_Surface PrevSurface,
-                              inout int ReducedMaxTemporalHistory)
+                              inout RTXDI_PTReservoir prevSample,
+                              const RAB_Surface curSurface,
+                              const RAB_Surface prevSurface,
+                              inout int reducedMaxTemporalHistory)
 {
-    PrevSample.M = min(PrevSample.M, min(RTXDI_PTReservoir::MaxM, ReducedMaxTemporalHistory));
-    ++PrevSample.Age;
+    prevSample.M = min(prevSample.M, min(RTXDI_PTReservoir::maxM, reducedMaxTemporalHistory));
+    prevSample.age = min(RTXDI_PTRESERVOIR_AGE_MAX, prevSample.age + 1);
 
-    bool FoundNeighbor = true;
-    if (PrevSample.Age > min(RTXDI_PTRESERVOIR_AGE_MAX, tParams.maxReservoirAge))
+    bool foundNeighbor = true;
+    if (tParams.enableAgeBasedRejection && prevSample.age > min(RTXDI_PTRESERVOIR_AGE_MAX, tParams.maxReservoirAge))
     {
-        FoundNeighbor = false;
+        foundNeighbor = false;
     }
 
-    return FoundNeighbor;
+    return foundNeighbor;
 }
 
 bool ShouldEvaluateTemporalReconnection(RTXDI_PTReservoir prevSample)
 {
-    return !(((prevSample.RcVertexLength == prevSample.PathLength) && RTXDI_ConnectsToNeeLight(prevSample)) || (prevSample.RcVertexLength > prevSample.PathLength));
+    return !(((prevSample.rcVertexLength == prevSample.pathLength) && RTXDI_ConnectsToNeeLight(prevSample)) || (prevSample.rcVertexLength > prevSample.pathLength));
 }
 
 void EvaluateReconnection(const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
-                          inout float3 TargetFunction,
-                          const RAB_Surface Surface,
-                          const RTXDI_PTReservoir PrevSample,
+                          inout float3 targetFunction,
+                          const RAB_Surface curSurface,
+                          const RTXDI_PTReservoir prevSample,
                           const bool checkVisibility)
 {
-    TargetFunction *= RAB_GetPTSampleTargetPdfForSurface(PrevSample.TranslatedWorldPosition, PrevSample.Radiance, Surface);
+    targetFunction *= RAB_GetPTSampleTargetPdfForSurface(prevSample.translatedWorldPosition, prevSample.radiance, curSurface);
 
-    if (checkVisibility && any(TargetFunction > 0.f))
+    if (checkVisibility && any(targetFunction > 0.f))
     {
-        TargetFunction *= RAB_GetConservativeVisibility(Surface, PrevSample.TranslatedWorldPosition);
+        targetFunction *= RAB_GetConservativeVisibility(curSurface, prevSample.translatedWorldPosition);
     }
 }
 
 RTXDI_PTHybridShiftRuntimeParameters BuildHSRShiftParams(const RTXDI_PTTemporalResamplingRuntimeParameters trrParams)
 {
     RTXDI_PTHybridShiftRuntimeParameters hsrParams = (RTXDI_PTHybridShiftRuntimeParameters)0;
-    hsrParams.IsBasePathInPrevFrame = true;
-    hsrParams.IsPrevFrame = false;
+    hsrParams.isBasePathInPrevFrame = true;
+    hsrParams.isPrevFrame = false;
     hsrParams.cameraPos = trrParams.cameraPos;
     hsrParams.prevCameraPos = trrParams.prevCameraPos;
     hsrParams.prevPrevCameraPos = trrParams.prevPrevCameraPos;
@@ -249,8 +259,8 @@ RTXDI_PTHybridShiftRuntimeParameters BuildHSRShiftParams(const RTXDI_PTTemporalR
 RTXDI_PTHybridShiftRuntimeParameters BuildHSRInverseShiftParams(const RTXDI_PTTemporalResamplingRuntimeParameters trrParams)
 {
     RTXDI_PTHybridShiftRuntimeParameters hsrParams = (RTXDI_PTHybridShiftRuntimeParameters)0;
-    hsrParams.IsBasePathInPrevFrame = false;
-    hsrParams.IsPrevFrame = true;
+    hsrParams.isBasePathInPrevFrame = false;
+    hsrParams.isPrevFrame = true;
     hsrParams.cameraPos = trrParams.cameraPos;
     hsrParams.prevCameraPos = trrParams.prevCameraPos;
     hsrParams.prevPrevCameraPos = trrParams.prevPrevCameraPos;
@@ -260,20 +270,20 @@ RTXDI_PTHybridShiftRuntimeParameters BuildHSRInverseShiftParams(const RTXDI_PTTe
 #if RTXDI_DEBUG == 1
 void TemporalRetrace(const RTXDI_PTTemporalResamplingRuntimeParameters trrParams,
                      const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
-                     RTXDI_PTReconnectionParameters rParams,
+                     RTXDI_PTReconnectionParameters rcParams,
                      RAB_Surface prevSurfCopy,
                      RTXDI_PTReservoir prevSampleCopy,
                      inout RAB_PathTracerUserData ptud)
 {
-    float3 TargetFunction = float3(0.0f, 0.0f, 0.0f);
-    float Jacobian = 0;
-    prevSampleCopy.PathLength = max(prevSampleCopy.PathLength, hspfParams.maxBounceDepth);
-    prevSampleCopy.RcVertexLength = prevSampleCopy.PathLength + 1;
-    rParams.roughnessThreshold = 1.0;
-    rParams.distanceThreshold = 1e6;
-    rParams.reconnectionMode = RTXDI_RESTIRPT_RECONNECTION_MODE_FIXED_THRESHOLD;
+    float3 targetFunction = float3(0.0f, 0.0f, 0.0f);
+    float jacobian = 0;
+    prevSampleCopy.pathLength = max(prevSampleCopy.pathLength, hspfParams.maxBounceDepth);
+    prevSampleCopy.rcVertexLength = prevSampleCopy.pathLength + 1;
+    rcParams.roughnessThreshold = 1.0;
+    rcParams.distanceThreshold = 1e6;
+    rcParams.reconnectionMode = RTXDI_RESTIRPT_RECONNECTION_MODE_FIXED_THRESHOLD;
     RAB_PathTracerUserDataSetPathType(ptud, RTXDI_PTPathTraceInvocationType_DebugTemporalRetrace);
-    ComputeHybridShift(prevSurfCopy, prevSampleCopy, hspfParams, BuildHSRShiftParams(trrParams), rParams, TargetFunction, Jacobian, ptud);
+    RTXDI_ComputeHybridShift(prevSurfCopy, prevSampleCopy, hspfParams, BuildHSRShiftParams(trrParams), rcParams, targetFunction, jacobian, ptud);
 }
 #endif
 
@@ -281,153 +291,155 @@ void TemporalRetrace(const RTXDI_PTTemporalResamplingRuntimeParameters trrParams
 void ResampleTemporalNeighbor(const RTXDI_PTTemporalResamplingParameters tParams,
                               const RTXDI_PTTemporalResamplingRuntimeParameters trrParams,
                               const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
-                              const RTXDI_PTReconnectionParameters rParams,
+                              const RTXDI_PTReconnectionParameters rcParams,
                               inout RTXDI_RandomSamplerState rng,
                               inout RTXDI_PTReservoir targetReservoir,
-                              inout RAB_Surface surface,
-                              inout RTXDI_PTReservoir PrevSample,
-                              inout float Jacobian,
-                              inout float3 SelectedTargetFunction,
+                              inout RAB_Surface curSurface,
+                              inout RTXDI_PTReservoir prevSample,
+                              inout float jacobian,
+                              inout float3 selectedTargetFunction,
                               inout bool selectedPrevSample,
                               inout RAB_PathTracerUserData ptud)
 {
-    float3 TargetFunction = float3(1.0f, 1.0f, 1.0f);
-    bool shouldEvaluateReconnection = ShouldEvaluateTemporalReconnection(PrevSample);
+    float3 targetFunction = float3(1.0f, 1.0f, 1.0f);
+    bool shouldEvaluateReconnection = ShouldEvaluateTemporalReconnection(prevSample);
 
     // The random replay (prefix tracing) pass taken by hybrid shift
-    // this will update Surface to the vertex before reconnection
+    // this will update curSurface to the vertex before reconnection
     // If the reconnection vertex is a NEE-sampled light vertex (UseRTXDILight), it will be handled inside this function
     RAB_PathTracerUserDataSetPathType(ptud, RTXDI_PTPathTraceInvocationType_Temporal);
-    ComputeHybridShift(surface, PrevSample, hspfParams, BuildHSRShiftParams(trrParams), rParams, TargetFunction, Jacobian, ptud);
+    RTXDI_ComputeHybridShift(curSurface, prevSample, hspfParams, BuildHSRShiftParams(trrParams), rcParams, targetFunction, jacobian, ptud);
 
-    PrevSample.WeightSum *= Jacobian;
+    prevSample.weightSum *= jacobian;
 
     if (shouldEvaluateReconnection)
     {
-        EvaluateReconnection(hspfParams, TargetFunction, surface, PrevSample, tParams.enableVisibilityBeforeCombine);
+        EvaluateReconnection(hspfParams, targetFunction, curSurface, prevSample, tParams.enableVisibilityBeforeCombine);
     }
 
-    if (CombineReservoirs(targetReservoir, PrevSample, RTXDI_GetNextRandom(rng), TargetFunction))
+    if (RTXDI_CombinePTReservoirs(targetReservoir, prevSample, RTXDI_GetNextRandom(rng), targetFunction))
     {
         selectedPrevSample = true;
-        SelectedTargetFunction = TargetFunction;
+        selectedTargetFunction = targetFunction;
     }
 }
 
 void BiasCorrection(const RTXDI_PTTemporalResamplingRuntimeParameters trrParams,
                     const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
-                    const RTXDI_PTReconnectionParameters rParams,
+                    const RTXDI_PTReconnectionParameters rcParams,
                     inout RTXDI_RandomSamplerState rng,
                     inout RTXDI_PTReservoir targetReservoir,
-                    inout RAB_Surface surface,
-                    inout RAB_Surface PrevSurface,
-                    inout RTXDI_PTReservoir PrevSample,
+                    inout RAB_Surface curSurface,
+                    inout RAB_Surface prevSurface,
+                    inout RTXDI_PTReservoir prevSample,
                     const bool selectedPrevSample,
-                    inout float Pi,
-                    inout float PiSum,
+                    inout float pi,
+                    inout float piSum,
                     inout RAB_PathTracerUserData ptud)
 {
-    float3 TargetFunction = float3(1.0f, 1.0f, 1.0f);
+    float3 targetFunction = float3(1.0f, 1.0f, 1.0f);
     bool shouldEvaluateReconnection = ShouldEvaluateTemporalReconnection(targetReservoir);
 
-    float Jacobian = RTXDI_CalculateJacobian(RAB_GetSurfaceWorldPos(PrevSurface), RAB_GetSurfaceWorldPos(surface), targetReservoir.TranslatedWorldPosition, targetReservoir.WorldNormal);
-    float backupPartialJacobian = targetReservoir.PartialJacobian; // for MIS weight computation, we don't want targetReservoir value to be eventually overwritten
+    float jacobian = RTXDI_CalculateJacobian(RAB_GetSurfaceWorldPos(prevSurface), RAB_GetSurfaceWorldPos(curSurface), targetReservoir.translatedWorldPosition, targetReservoir.worldNormal);
+    float backupPartialJacobian = targetReservoir.partialJacobian; // for MIS weight computation, we don't want targetReservoir value to be eventually overwritten
 
     RAB_PathTracerUserDataSetPathType(ptud, RTXDI_PTPathTraceInvocationType_TemporalInverse);
-    ComputeHybridShift(PrevSurface, targetReservoir, hspfParams, BuildHSRInverseShiftParams(trrParams), rParams, TargetFunction, Jacobian, ptud);
+    RTXDI_ComputeHybridShift(prevSurface, targetReservoir, hspfParams, BuildHSRInverseShiftParams(trrParams), rcParams, targetFunction, jacobian, ptud);
 
-    targetReservoir.PartialJacobian = backupPartialJacobian;
+    targetReservoir.partialJacobian = backupPartialJacobian;
 
     if (shouldEvaluateReconnection)
     {
-        EvaluateReconnection(hspfParams, TargetFunction, PrevSurface, targetReservoir, true);
+        EvaluateReconnection(hspfParams, targetFunction, prevSurface, targetReservoir, true);
     }
 
-    float TemporalP = RTXDI_Luminance(TargetFunction) * Jacobian;
+    float temporalP = RTXDI_Luminance(targetFunction) * jacobian;
 
-    Pi = selectedPrevSample ? TemporalP : Pi;
-    PiSum += TemporalP * PrevSample.M;
+    pi = selectedPrevSample ? temporalP : pi;
+    piSum += temporalP * prevSample.M;
 }
 
 RTXDI_PTReservoir RTXDI_PTTemporalResampling(RTXDI_PTTemporalResamplingParameters tParams,
                                              RTXDI_PTTemporalResamplingRuntimeParameters trrParams,
                                              RTXDI_PTHybridShiftPerFrameParameters hspfParams,
-                                             RTXDI_PTReconnectionParameters rParams,
-                                             RTXDI_RuntimeParameters runtimeParams,
+                                             RTXDI_PTReconnectionParameters rcParams,
+                                             RTXDI_RuntimeParameters rParams,
                                              RTXDI_ReservoirBufferParameters bufferParams,
                                              RTXDI_RandomSamplerState rng,
                                              RTXDI_PTBufferIndices bufferIndices,
                                              inout bool selectedPrevSample,
                                              inout RAB_PathTracerUserData ptud)
 {
-    RAB_Surface Surface = RAB_GetGBufferSurface(trrParams.pixelPosition, false);
-    if (!RAB_IsSurfaceValid(Surface))
+    RAB_Surface curSurface = RAB_GetGBufferSurface(trrParams.pixelPosition, false);
+    if (!RAB_IsSurfaceValid(curSurface))
     {
         return RTXDI_EmptyPTReservoir();
     }
 
     RTXDI_PTReservoir targetReservoir = RTXDI_EmptyPTReservoir();
-    RTXDI_PTReservoir CurSample = RTXDI_LoadPTReservoir(bufferParams, trrParams.reservoirPosition, bufferIndices.initialPathTracerOutputBufferIndex);
-    float3 SelectedTargetFunction = float3(0.0f, 0.0f, 0.0f);
+    RTXDI_PTReservoir curSample = RTXDI_LoadPTReservoir(bufferParams, trrParams.reservoirPosition, bufferIndices.initialPathTracerOutputBufferIndex);
+    float3 selectedTargetFunction = float3(0.0f, 0.0f, 0.0f);
 
-    if (RTXDI_IsValidPTReservoir(CurSample))
+    if (RTXDI_IsValidPTReservoir(curSample))
     {
-        if (CombineReservoirs(targetReservoir, CurSample, /* random = */ 0.5, CurSample.TargetFunction))
+        if (RTXDI_CombinePTReservoirs(targetReservoir, curSample, /* random = */ 0.5, curSample.targetFunction))
         {
-            SelectedTargetFunction = CurSample.TargetFunction;
+            selectedTargetFunction = curSample.targetFunction;
         }
     }
 
     int2 prevPos = int2(round(float2(trrParams.pixelPosition) + trrParams.motionVector.xy));
-    float ExpectedPrevLinearDepth = RAB_GetSurfaceLinearDepth(Surface) + trrParams.motionVector.z;
-    RTXDI_PTReservoir PrevSample = RTXDI_EmptyPTReservoir();
-    RAB_Surface PrevSurface = RAB_EmptySurface();
+    float expectedPrevLinearDepth = RAB_GetSurfaceLinearDepth(curSurface) + trrParams.motionVector.z;
+    RTXDI_PTReservoir prevSample = RTXDI_EmptyPTReservoir();
+    RAB_Surface prevSurface = RAB_EmptySurface();
 
-    bool FoundNeighbor = FindTemporalNeighbor(tParams, runtimeParams, bufferParams, bufferIndices, rng, trrParams.pixelPosition, prevPos, Surface, ExpectedPrevLinearDepth, PrevSurface, PrevSample);
+    bool foundNeighbor = FindTemporalNeighbor(tParams, rParams, bufferParams, bufferIndices, rng, trrParams.pixelPosition, prevPos, curSurface, expectedPrevLinearDepth, prevSurface, prevSample);
 
 #if RTXDI_DEBUG == 1
-    if(FoundNeighbor)
+    if(foundNeighbor)
     {
-        TemporalRetrace(trrParams, hspfParams, rParams, PrevSurface, PrevSample, ptud);
+        TemporalRetrace(trrParams, hspfParams, rcParams, prevSurface, prevSample, ptud);
     }
 #endif
 
-    int ReducedMaxTemporalHistory = tParams.maxHistoryLength;
+    int reducedMaxTemporalHistory = tParams.maxHistoryLength;
     // Duplication-based history reduction: reduce MCap where many pixels share the same sample ID
-    if (tParams.duplicationBasedHistoryReduction && FoundNeighbor && tParams.historyReductionStrength > 0.f)
+    if (tParams.duplicationBasedHistoryReduction && foundNeighbor && tParams.historyReductionStrength > 0.f)
     {
         uint dupCount = RAB_GetDuplicationMapCount(prevPos);
-        float impoverishment = saturate(float(dupCount) / 288.0);
+        static const float totalNeighborCountInDupmapRegion = 288.0;
+        float impoverishment = saturate(float(dupCount) / totalNeighborCountInDupmapRegion);
         float powerFactor = 0.1 * pow(2,6 * (1.f - tParams.historyReductionStrength) - 3);
         float t = pow(impoverishment, powerFactor);
-        ReducedMaxTemporalHistory = max(1, (int)lerp((float)tParams.maxHistoryLength, 1.0, t));
+        reducedMaxTemporalHistory = max(1, (int)lerp((float)tParams.maxHistoryLength, 1.0, t));
     }
-    float Jacobian = 1.f;
-    if (FoundNeighbor)
+    float jacobian = 1.f;
+    if (foundNeighbor)
     {
-        Jacobian = RTXDI_CalculateJacobian(RAB_GetSurfaceWorldPos(Surface), RAB_GetSurfaceWorldPos(PrevSurface), PrevSample.TranslatedWorldPosition, PrevSample.WorldNormal);
-        FoundNeighbor = ValidateTemporalNeighbor(tParams, PrevSample, Surface, PrevSurface, ReducedMaxTemporalHistory);
+        jacobian = RTXDI_CalculateJacobian(RAB_GetSurfaceWorldPos(curSurface), RAB_GetSurfaceWorldPos(prevSurface), prevSample.translatedWorldPosition, prevSample.worldNormal);
+        foundNeighbor = ValidateTemporalNeighbor(tParams, prevSample, curSurface, prevSurface, reducedMaxTemporalHistory);
     }
 
     selectedPrevSample = false;
-    if (FoundNeighbor)
+    if (foundNeighbor)
     {
-        ResampleTemporalNeighbor(tParams, trrParams, hspfParams, rParams, rng, targetReservoir, Surface, PrevSample, Jacobian, SelectedTargetFunction, selectedPrevSample, ptud);
+        ResampleTemporalNeighbor(tParams, trrParams, hspfParams, rcParams, rng, targetReservoir, curSurface, prevSample, jacobian, selectedTargetFunction, selectedPrevSample, ptud);
     }
 
-    float Pi = RTXDI_Luminance(SelectedTargetFunction);
-    float PiSum = RTXDI_Luminance(SelectedTargetFunction) * CurSample.M;
-    if (RTXDI_IsValidPTReservoir(targetReservoir) && FoundNeighbor)
+    float pi = RTXDI_Luminance(selectedTargetFunction);
+    float piSum = RTXDI_Luminance(selectedTargetFunction) * curSample.M;
+    if (RTXDI_IsValidPTReservoir(targetReservoir) && foundNeighbor)
     {
-        BiasCorrection(trrParams, hspfParams, rParams, rng, targetReservoir, Surface, PrevSurface, PrevSample, selectedPrevSample, Pi, PiSum, ptud);
+        BiasCorrection(trrParams, hspfParams, rcParams, rng, targetReservoir, curSurface, prevSurface, prevSample, selectedPrevSample, pi, piSum, ptud);
     }
 
-    const float NormalizationNumerator = Pi;
-    const float NormalizationDenominator = PiSum * RTXDI_Luminance(SelectedTargetFunction);
-    RTXDI_FinalizeResampling(targetReservoir, NormalizationNumerator, NormalizationDenominator);
+    const float normalizationNumerator = pi;
+    const float normalizationDenominator = piSum * RTXDI_Luminance(selectedTargetFunction);
+    RTXDI_FinalizePTResampling(targetReservoir, normalizationNumerator, normalizationDenominator);
     if (tParams.duplicationBasedHistoryReduction)
     {
-        targetReservoir.ShouldBoostSpatialSamples = ReducedMaxTemporalHistory > targetReservoir.M;
+        // cannot use ReducedMaxTemporalHistory > targetReservoir.M to test because targetReservoir.M fluctuates every frame
+        RTXDI_SetShouldBoostSpatialSamples(targetReservoir, !foundNeighbor);
     }
 
     return targetReservoir;

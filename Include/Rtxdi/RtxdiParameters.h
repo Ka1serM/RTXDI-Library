@@ -52,6 +52,14 @@
 // Uses a more dynamic ray + brdf calculation to determine reconnectibility
 #define RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT 1
 
+// Decorrelation mode: how final shading decides whether to swap in the preserved initial-sampling reservoir.
+// 0 = off (never decorrelate, ignore slider).
+#define RTXDI_PT_DECORRELATION_MODE_NONE 0
+// 1 = uniform decorrelation probability equal to the slider value across all pixels.
+#define RTXDI_PT_DECORRELATION_MODE_UNIFORM 1
+// 2 = slider value scaled by the spatially/temporally-smoothed reservoir Stagnancy signal.
+#define RTXDI_PT_DECORRELATION_MODE_STAGNANCY 2
+
 // When neighboring samples have less than the naive sampling M threshold, they are ignored during spatial resampling
 #define RTXDI_NAIVE_SAMPLING_M_THRESHOLD 2
 

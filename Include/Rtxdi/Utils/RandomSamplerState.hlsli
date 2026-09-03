@@ -34,7 +34,7 @@ RTXDI_RandomSamplerState RTXDI_InitRandomSampler(uint2 pixelPos, uint frameIndex
     uint linearPixelIndex = RTXDI_ZCurveToLinearIndex(pixelPos);
 
     state.index = 1;
-    state.seed = RTXDI_JenkinsHash(linearPixelIndex) + frameIndex + (pass * RTXDI_RANDAOM_SAMPLER_PRIME_CONSTANT);
+    state.seed = RTXDI_JenkinsHash(linearPixelIndex) + frameIndex + (pass * RTXDI_RANDOM_SAMPLER_PRIME_CONSTANT);
 
     return state;
 
@@ -92,20 +92,10 @@ RTXDI_RandomSamplerState RTXDI_CreateRandomSamplerFromDirectSeed(uint seed, uint
 
 float RTXDI_GaussRand(float mean, float stddev, inout RTXDI_RandomSamplerState rng)
 {
-	// Box-Muller method for sampling from the normal distribution
-	// http://en.wikipedia.org/wiki/Normal_distribution#Generating_values_from_normal_distribution
-	// This method requires 2 uniform random inputs and produces 2
-	// Gaussian random outputs.  We'll take a 3rd random variable and use it to
-	// switch between the two outputs.
-
-	// Add in the CPU-supplied random offsets to generate the 3 random values that we'll use.
-	const float3 UVR = float3(RTXDI_GetNextRandom(rng), RTXDI_GetNextRandom(rng), RTXDI_GetNextRandom(rng));
-
-	// Switch between the two random outputs.
-	float Z = sqrt(-2.0 * log(UVR.x)) * ((UVR.z < 0.5) ? sin(2.0 * RTXDI_PI * UVR.y) : cos(2.0 * RTXDI_PI * UVR.y));
-
-	// Apply the stddev and mean.
-	Z = Z * stddev * mean + mean;
+	// Sampling from the normal distribution (Box-Muller method)
+	const float2 UV = float2(RTXDI_GetNextRandom(rng), RTXDI_GetNextRandom(rng));
+	float Z = sqrt(-2.0 * log(UV.x)) * cos(2.0 * RTXDI_PI * UV.y);
+	Z = Z * stddev * mean + mean; // want the standard deviation to scale with mean to provide a soft threshold
 
 	return Z;
 }

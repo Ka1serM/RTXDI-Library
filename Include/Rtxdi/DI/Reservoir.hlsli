@@ -186,7 +186,7 @@ bool RTXDI_StreamSample(
 }
 
 // Adds `newReservoir` into `reservoir`, returns true if the new reservoir's sample was selected.
-// This is a very general form, allowing input parameters to specfiy normalization and targetPdf
+// This is a very general form, allowing input parameters to specify normalization and targetPdf
 // rather than computing them from `newReservoir`.  Named "internal" since these parameters take
 // different meanings (e.g., in RTXDI_CombineDIReservoirs() or RTXDI_StreamNeighborWithPairwiseMIS())
 bool RTXDI_InternalSimpleResample(

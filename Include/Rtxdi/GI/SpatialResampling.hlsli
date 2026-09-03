@@ -33,7 +33,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
 	uint sourceBufferIndex,
     const RTXDI_GIReservoir inputReservoir,
     inout RTXDI_RandomSamplerState rng,
-    const RTXDI_RuntimeParameters params,
+    const RTXDI_RuntimeParameters rParams,
     const RTXDI_ReservoirBufferParameters reservoirParams,
     const RTXDI_GISpatialResamplingParameters sparams)
 {
@@ -56,17 +56,17 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
     // Since we're using our bias correction scheme, we need to remember which light selection we made
     int selected = -1;
 
-    const int neighborSampleStartIdx = int(RTXDI_GetNextRandom(rng) * params.neighborOffsetMask);
+    const int neighborSampleStartIdx = int(RTXDI_GetNextRandom(rng) * rParams.neighborOffsetMask);
 
     // Walk the specified number of spatial neighbors, resampling using RIS
     for (int i = 0; i < numSamples; ++i)
     {
         // Get screen-space location of neighbor
-        int2 idx = int2(pixelPosition) + RTXDI_CalculateSpatialResamplingOffset(neighborSampleStartIdx + i, sparams.samplingRadius, params.neighborOffsetMask);
+        int2 idx = int2(pixelPosition) + RTXDI_CalculateSpatialResamplingOffset(neighborSampleStartIdx + i, sparams.samplingRadius, rParams.neighborOffsetMask);
 
         idx = RAB_ClampSamplePositionIntoView(idx, false);
 
-        RTXDI_ActivateCheckerboardPixel(idx, false, params.activeCheckerboardField);
+        RTXDI_ActivateCheckerboardPixel(idx, false, rParams.activeCheckerboardField);
 
         RAB_Surface neighborSurface = RAB_GetGBufferSurface(idx, false);
 
@@ -85,7 +85,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
             continue;
         }
 
-        const uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField);
+        const uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField);
         RTXDI_GIReservoir neighborReservoir = RTXDI_LoadGIReservoir(reservoirParams, neighborReservoirPos, sourceBufferIndex);
 
         if (!RTXDI_IsValidGIReservoir(neighborReservoir))
@@ -108,7 +108,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
             continue;
         }
 
-        // Valid neighbor surface and its GI reservoir. Combine the reservor.
+        // Valid neighbor surface and its GI reservoir. Combine the reservoir.
         cachedResult |= (1u << uint(i));
 
         // Combine
@@ -126,8 +126,8 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
         float pi = selectedTargetPdf;
         float piSum = selectedTargetPdf * inputReservoir.M;
 
-        // If the GI reservoir has selected other than the initial sample, the position should be come from the previous frame.
-        // However, there is no idea for the previous position of the initial GI reservoir, so it just uses the current position as its previous one.
+        // If the GI reservoir has selected other than the initial sample, the position should come from the previous frame.
+        // However, there is no recorded previous position for the initial GI reservoir, so it uses the current position as a stand-in.
         // float3 selectedPositionInPreviousFrame = curReservoir.position;
 
         // We need to walk our neighbors again
@@ -137,16 +137,16 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
             if ((cachedResult & (1u << uint(i))) == 0) continue;
 
             // Get the screen-space location of our neighbor
-            int2 idx = int2(pixelPosition) + RTXDI_CalculateSpatialResamplingOffset(neighborSampleStartIdx + i, sparams.samplingRadius, params.neighborOffsetMask);
+            int2 idx = int2(pixelPosition) + RTXDI_CalculateSpatialResamplingOffset(neighborSampleStartIdx + i, sparams.samplingRadius, rParams.neighborOffsetMask);
 
             idx = RAB_ClampSamplePositionIntoView(idx, false);
 
-            RTXDI_ActivateCheckerboardPixel(idx, false, params.activeCheckerboardField);
+            RTXDI_ActivateCheckerboardPixel(idx, false, rParams.activeCheckerboardField);
 
             // Load our neighbor's G-buffer and its GI reservoir again.
             RAB_Surface neighborSurface = RAB_GetGBufferSurface(idx, false);
 
-            const uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField);
+            const uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField);
             RTXDI_GIReservoir neighborReservoir = RTXDI_LoadGIReservoir(reservoirParams, neighborReservoirPos, sourceBufferIndex);
 
             // Get the PDF of the sample RIS selected in the first loop, above, *at this neighbor*

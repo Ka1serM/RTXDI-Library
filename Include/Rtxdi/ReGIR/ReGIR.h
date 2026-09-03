@@ -48,7 +48,7 @@ namespace rtxdi
     struct ReGIRGridStaticParameters
     {
         // Grid dimensions along the primary axes, in cells.
-        uint3 GridSize = { 16, 16, 16 };
+        uint3 gridSize = { 16, 16, 16 };
     };
 
     struct ReGIROnionStaticParameters
@@ -59,23 +59,23 @@ namespace rtxdi
         // in each detail layer is higher than the number of cells in the previous
         // detail layer.
         // Acceptable values are 0 to RTXDI_ONION_MAX_LAYER_GROUPS.
-        uint32_t OnionDetailLayers = 5;
+        uint32_t onionDetailLayers = 5;
 
         // Number of onion layers that cover the volume after the detail layers.
         // Each coverage layer has the same number of cells that is determined
         // only by the number of the detail layers. Coverage layers have cell size
         // that is proportional to the distance from the center as a linear function.
-        uint32_t OnionCoverageLayers = 10;
+        uint32_t onionCoverageLayers = 10;
     };
 
     // ReGIR parameters that are used to generate ReGIR data structures
     // Changing these requires recreating the ReGIR context and the associated buffers
     struct ReGIRStaticParameters
     {
-        ReGIRMode Mode = ReGIRMode::Onion;
+        ReGIRMode mode = ReGIRMode::Onion;
 
         // Number of light reservoirs computed and stored for each cell.
-        uint32_t LightsPerCell = 512;
+        uint32_t lightsPerCell = 512;
 
         ReGIRGridStaticParameters gridParameters;
         ReGIROnionStaticParameters onionParameters;
@@ -83,7 +83,7 @@ namespace rtxdi
 
     // ReGIR parameters generated from the ReGIRGridStaticParameters
     // Changing these requires changing the ReGIRStaticParameters and
-    // therefore recreating the ReGIRcontext
+    // therefore recreating the ReGIRContext
     struct ReGIRGridCalculatedParameters
     {
         uint32_t lightSlotCount = 0;
@@ -92,7 +92,7 @@ namespace rtxdi
 
     // ReGIR parameters generated from the ReGIROnionStaticParameters
     // Changing these requires changing the ReGIRStaticParameters and
-    // therefore recreating the ReGIRcontext
+    // therefore recreating the ReGIRContext
     struct ReGIROnionCalculatedParameters
     {
         uint32_t lightSlotCount = 0;
@@ -148,7 +148,7 @@ namespace rtxdi
     public:
         ReGIRContext(const ReGIRStaticParameters& params, RISBufferSegmentAllocator& risBufferSegmentAllocator);
 
-        bool IsLocalLightPowerRISEnable() const;
+        bool IsLocalLightPowerRISEnabled() const;
 
         uint32_t GetReGIRCellOffset() const;
         uint32_t GetReGIRLightSlotCount() const;

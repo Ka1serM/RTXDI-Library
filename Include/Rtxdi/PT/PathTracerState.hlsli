@@ -34,54 +34,54 @@ class RTXDI_PathTracerState
     // Reset partial state for the next path
     void BeginPathState()
     {
-        LastHitT = RAB_RayPayloadGetCommittedHitT(TraceResult);
+        lastHitT = RAB_RayPayloadGetCommittedHitT(traceResult);
 
         // Compiler should be able to optimize all of these instructions below, hopefully.
         brdfRaySample = (RTXDI_BrdfRaySample)0;
-        TraceResult = (RAB_RayPayload)0;
-        ContinuationRay = (RayDesc)0;
+        traceResult = (RAB_RayPayload)0;
+        continuationRay = (RayDesc)0;
     }
 
     // Hybrid shift functions
 
-    void SetPathTermination(bool Value)
+    void SetPathTermination(bool value)
     {
-        PTStateFlags &= ~PT_STATE_PATH_TERMINATION;
-        PTStateFlags |= Value ? PT_STATE_PATH_TERMINATION : 0x0;
+        ptStateFlags &= ~PT_STATE_PATH_TERMINATION;
+        ptStateFlags |= value ? PT_STATE_PATH_TERMINATION : 0x0;
     }
 
     bool IsPathTermination()
     {
-        return (PTStateFlags & PT_STATE_PATH_TERMINATION) != 0;
+        return (ptStateFlags & PT_STATE_PATH_TERMINATION) != 0;
     }
 
     // PT Base Functions
 
-    void SetIsLastVertexFar(bool Value)
+    void SetIsLastVertexFar(bool value)
     {
-        PTStateFlags &= ~PT_STATE_LAST_VERTEX_FAR;
-        PTStateFlags |= Value ? PT_STATE_LAST_VERTEX_FAR : 0x0;
+        ptStateFlags &= ~PT_STATE_LAST_VERTEX_FAR;
+        ptStateFlags |= value ? PT_STATE_LAST_VERTEX_FAR : 0x0;
     }
 
     bool IsLastVertexFar()
     {
-        return (PTStateFlags & PT_STATE_LAST_VERTEX_FAR) != 0;
+        return (ptStateFlags & PT_STATE_LAST_VERTEX_FAR) != 0;
     }
 
-    void SetIsLastVertexRough(bool Value)
+    void SetIsLastVertexRough(bool value)
     {
-        PTStateFlags &= ~PT_STATE_LAST_VERTEX_ROUGH;
-        PTStateFlags |= Value ? PT_STATE_LAST_VERTEX_ROUGH : 0x0;
+        ptStateFlags &= ~PT_STATE_LAST_VERTEX_ROUGH;
+        ptStateFlags |= value ? PT_STATE_LAST_VERTEX_ROUGH : 0x0;
     }
 
     bool IsLastVertexRough()
     {
-        return (PTStateFlags & PT_STATE_LAST_VERTEX_ROUGH) != 0;
+        return (ptStateFlags & PT_STATE_LAST_VERTEX_ROUGH) != 0;
     }
 
     bool NoMainPathRcVertex()
     {
-        return RcVertexLength >= bounceDepth; // change > to >= because maxRcVertex can be small
+        return rcVertexLength >= bounceDepth; // change > to >= because maxRcVertex can be small
     }
 
     //
@@ -104,20 +104,20 @@ class RTXDI_PathTracerState
     RTXDI_BrdfRaySample brdfRaySample;
 
     // The ray for the current bounce
-    RayDesc ContinuationRay;
+    RayDesc continuationRay;
 
     // The vertex in the path, depending on different state of the path tracing, this means different things.
     // Check the implementation for further details
     RAB_Surface intersectionSurface;
 
     // See PT_STATE_* defines
-    uint16_t PTStateFlags;
+    uint16_t ptStateFlags;
 
     // Continuation ray
     float3 continuationRayBrdfOverPdf;
 
     // Intersection payload
-    RAB_RayPayload TraceResult;
+    RAB_RayPayload traceResult;
 
     RAB_LightSample lightSampleForDI;
 
@@ -125,26 +125,26 @@ class RTXDI_PathTracerState
     // PT Base state
     //
 
-    float LastHitT;
+    float lastHitT;
 
     //
     // Replay state
     //
 
-    float3 PreviousNormal;
-    // float   LastHitT;
+    float3 prevNormal;
+    // float   lastHitT;
 
     //
     // ReSTIR PT state
     //
 
-    float3 RcPathThroughput;
+    float3 rcPathThroughput;
 
-    uint16_t RcVertexLength;
+    uint16_t rcVertexLength;
 
     RTXDI_SampledLightData sampledLightDataForDI;
 
-    float CandidateReservoirWeightSum;
+    float candidateReservoirWeightSum;
 };
 
 RTXDI_PathTracerState RTXDI_EmptyPathTracerState()

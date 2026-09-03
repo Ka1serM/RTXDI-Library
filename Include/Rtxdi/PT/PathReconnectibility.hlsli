@@ -26,31 +26,31 @@ struct RTXDI_PTReconnectionRuntimeParameters
     bool isPrevFrame;
 };
 
-float RTXDI_CalculatePrimaryRayFootprint(RTXDI_PTReconnectionRuntimeParameters rParams, RAB_Surface SurfaceForResampling)
+float RTXDI_CalculatePrimaryRayFootprint(RTXDI_PTReconnectionRuntimeParameters rcrParams, RAB_Surface surfaceForResampling)
 {
     // Note that the footprint threshold is a ratio of the primary ray's footprint
     // If we shift a sample to the previous frame, we need to know previous frame's primary ray's footprint
 
-    float3 PreViewTranslationOffset = (rParams.prevCameraPos - rParams.prevPrevCameraPos);
-    float3 PrimaryHitDisp = RAB_GetSurfaceWorldPos(SurfaceForResampling) - (rParams.isPrevFrame ? (rParams.prevCameraPos + PreViewTranslationOffset) : rParams.cameraPos);
+    float3 preViewTranslationOffset = (rcrParams.prevCameraPos - rcrParams.prevPrevCameraPos);
+    float3 primaryHitDisp = RAB_GetSurfaceWorldPos(surfaceForResampling) - (rcrParams.isPrevFrame ? (rcrParams.prevCameraPos + preViewTranslationOffset) : rcrParams.cameraPos);
 
-    return dot(PrimaryHitDisp, PrimaryHitDisp) * 4 * RTXDI_PI / abs(dot(RAB_GetSurfaceNormal(SurfaceForResampling), RAB_GetSurfaceViewDir(SurfaceForResampling)));
+    return dot(primaryHitDisp, primaryHitDisp) * 4 * RTXDI_PI / abs(dot(RAB_GetSurfaceNormal(surfaceForResampling), RAB_GetSurfaceViewDir(surfaceForResampling)));
 }
 
 void RTXDI_CalculateFootprintParameters(
-    const RTXDI_PTReconnectionParameters rParams,
-    const RTXDI_PTReconnectionRuntimeParameters rrParams,
+    const RTXDI_PTReconnectionParameters rcParams,
+    const RTXDI_PTReconnectionRuntimeParameters rcrParams,
     const RAB_Surface surfaceForResampling,
     inout RTXDI_PathTracerRandomContext ptRandContext,
     inout float footprintThreshold,
     inout float pdfThreshold)
 {
-    const float LocalMinConnectionFootprint = RTXDI_GaussRand(rParams.minConnectionFootprint, rParams.minConnectionFootprintSigma, ptRandContext.replayRandomSamplerState);
-    const float LocalMinPdfRoughness = RTXDI_GaussRand(rParams.minPdfRoughness, rParams.minPdfRoughnessSigma, ptRandContext.replayRandomSamplerState);
-    float PrimaryRayFootprint = RTXDI_CalculatePrimaryRayFootprint(rrParams, surfaceForResampling);
+    const float localMinConnectionFootprint = RTXDI_GaussRand(rcParams.minConnectionFootprint, rcParams.minConnectionFootprintSigma, ptRandContext.replayRandomSamplerState);
+    const float localMinPdfRoughness = RTXDI_GaussRand(rcParams.minPdfRoughness, rcParams.minPdfRoughnessSigma, ptRandContext.replayRandomSamplerState);
+    float primaryRayFootprint = RTXDI_CalculatePrimaryRayFootprint(rcrParams, surfaceForResampling);
 
-    footprintThreshold = PrimaryRayFootprint * LocalMinConnectionFootprint * LocalMinConnectionFootprint;
-    pdfThreshold = 1.f / (LocalMinPdfRoughness * LocalMinPdfRoughness);
+    footprintThreshold = primaryRayFootprint * localMinConnectionFootprint * localMinConnectionFootprint;
+    pdfThreshold = 1.f / (localMinPdfRoughness * localMinPdfRoughness);
 }
 
 
@@ -61,10 +61,10 @@ float RTXDI_CalculateRayFootprint(const float3 surfNormal,
 {
     if(brs.properties.IsDelta())
         return 0.0;    
-    const float pdf = brs.OutPdf;
-    const float GeometryFactor = abs(dot(surfNormal, surfViewDir)) / (rayDist * rayDist);
-    const float RayFootprint = 1.f / (GeometryFactor * pdf);
-    return RayFootprint;
+    const float pdf = brs.outPdf;
+    const float geometryFactor = abs(dot(surfNormal, surfViewDir)) / (rayDist * rayDist);
+    const float rayFootprint = 1.f / (geometryFactor * pdf);
+    return rayFootprint;
 }
 
 #endif // RTXDI_PATH_RECONNECTIBILITY_HLSLI

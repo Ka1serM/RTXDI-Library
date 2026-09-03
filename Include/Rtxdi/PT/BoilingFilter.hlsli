@@ -24,7 +24,7 @@ void RTXDI_PTBoilingFilter(
     float filterStrength, // (0..1]
     inout RTXDI_PTReservoir reservoir)
 {
-    float weight = RTXDI_Luminance(reservoir.TargetFunction) * reservoir.WeightSum;
+    float weight = RTXDI_Luminance(reservoir.targetFunction) * reservoir.weightSum;
 
     if (RTXDI_BoilingFilterInternal(LocalIndex, filterStrength, weight))
         reservoir = RTXDI_EmptyPTReservoir();

@@ -49,14 +49,14 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
 	uint sourceBufferIndex,
     const RTXDI_GIReservoir inputReservoir,
     inout RTXDI_RandomSamplerState rng,
-    const RTXDI_RuntimeParameters params,
+    const RTXDI_RuntimeParameters rParams,
     const RTXDI_ReservoirBufferParameters reservoirParams,
     const RTXDI_GITemporalResamplingParameters tparams)
 {
-    // Backproject this pixel to last frame
+    // Backproject this pixel to the previous frame
     int2 prevPos = int2(round(float2(pixelPosition) + screenSpaceMotion.xy));
     const float expectedPrevLinearDepth = RAB_GetSurfaceLinearDepth(surface) + screenSpaceMotion.z;
-    const int radius = (params.activeCheckerboardField == 0) ? 1 : 2;
+    const int radius = (rParams.activeCheckerboardField == 0) ? 1 : 2;
 
     RTXDI_GIReservoir temporalReservoir;
     bool foundTemporalReservoir = false;
@@ -92,9 +92,9 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
             RTXDI_ApplyPermutationSampling(idx, tparams.uniformRandomNumber);
         }
 
-        RTXDI_ActivateCheckerboardPixel(idx, true, params.activeCheckerboardField);
+        RTXDI_ActivateCheckerboardPixel(idx, true, rParams.activeCheckerboardField);
         
-        // Grab shading / g-buffer data from last frame
+        // Grab shading / g-buffer data from the previous frame
         temporalSurface = RAB_GetGBufferSurface(idx, true);
 
         if (!RAB_IsSurfaceValid(temporalSurface))
@@ -119,7 +119,7 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
         }
 
         // Read temporal reservoir.
-        uint2 prevReservoirPos = RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField);
+        uint2 prevReservoirPos = RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField);
         temporalReservoir = RTXDI_LoadGIReservoir(reservoirParams, prevReservoirPos, sourceBufferIndex);
 
         // Check if the reservoir is a valid one.

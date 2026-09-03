@@ -13,7 +13,7 @@
 #ifndef RTXDI_BRDF_RAY_SAMPLE_HLSLI
 #define RTXDI_BRDF_RAY_SAMPLE_HLSLI
 
-#include "rtxdi/Utils/Math.hlsli"
+#include "Rtxdi/Utils/Math.hlsli"
 
 #define RTXDI_BrdfRaySampleProperties_ContinuousDelta_Bit 0
 #define RTXDI_BrdfRaySampleProperties_DiffuseSpecular_Bit 1
@@ -87,13 +87,13 @@ RTXDI_BrdfRaySampleProperties RTXDI_DefaultBrdfRaySampleProperties()
 struct RTXDI_BrdfRaySample
 {
     // This points outward from the surface in world space
-    float3 OutDirection;
+    float3 outDirection;
 
     // This is the PDF of picking the ray w.r.t solid angle
-    float OutPdf;
+    float outPdf;
 
     // BRDF of outgoing direction premultiplied by the cosine term
-    float3 BrdfTimesNoL;
+    float3 brdfTimesNoL;
 
     RTXDI_BrdfRaySampleProperties properties;
 };

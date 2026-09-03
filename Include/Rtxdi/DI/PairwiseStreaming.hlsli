@@ -16,10 +16,10 @@
 #include "Rtxdi/DI/Reservoir.hlsli"
 
 // A helper used for pairwise MIS computations.  This might be able to simplify code elsewhere, too.
-float RTXDI_TargetPdfHelper(const RTXDI_DIReservoir lightReservoir, const RAB_Surface surface, bool priorFrame RTXDI_DEFAULT(false))
+float RTXDI_TargetPdfHelper(const RTXDI_DIReservoir lightReservoir, const RAB_Surface surface, bool prevFrame RTXDI_DEFAULT(false))
 {
     RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
-        RAB_LoadLightInfo(RTXDI_GetDIReservoirLightIndex(lightReservoir), priorFrame),
+        RAB_LoadLightInfo(RTXDI_GetDIReservoirLightIndex(lightReservoir), prevFrame),
         surface, RTXDI_GetDIReservoirSampleUV(lightReservoir));
 
     return RAB_GetLightSampleTargetPdfForSurface(lightSample, surface);
@@ -36,23 +36,23 @@ bool RTXDI_StreamNeighborWithPairwiseMIS(inout RTXDI_DIReservoir reservoir,
     float random,
     const RTXDI_DIReservoir neighborReservoir,
     const RAB_Surface neighborSurface,
-    const RTXDI_DIReservoir canonicalReservor,
+    const RTXDI_DIReservoir canonicalReservoir,
     const RAB_Surface canonicalSurface,
     const uint numberOfNeighborsInStream)    // # neighbors streamed via pairwise MIS before streaming the canonical sample
 {
-    // Compute PDFs of the neighbor and cannonical light samples and surfaces in all permutations.
+    // Compute PDFs of the neighbor and canonical light samples and surfaces in all permutations.
     // Note: First two must be computed this way.  Last two *should* be replacable by neighborReservoir.targetPdf
-    // and canonicalReservor.targetPdf to reduce redundant computations, but there's a bug in that naive reuse.
+    // and canonicalReservoir.targetPdf to reduce redundant computations, but there's a bug in that naive reuse.
     float neighborWeightAtCanonical = max(0.0f, RTXDI_TargetPdfHelper(neighborReservoir, canonicalSurface, false));
-    float canonicalWeightAtNeighbor = max(0.0f, RTXDI_TargetPdfHelper(canonicalReservor, neighborSurface, false));
+    float canonicalWeightAtNeighbor = max(0.0f, RTXDI_TargetPdfHelper(canonicalReservoir, neighborSurface, false));
     float neighborWeightAtNeighbor = max(0.0f, RTXDI_TargetPdfHelper(neighborReservoir, neighborSurface, false));
-    float canonicalWeightAtCanonical = max(0.0f, RTXDI_TargetPdfHelper(canonicalReservor, canonicalSurface, false));
+    float canonicalWeightAtCanonical = max(0.0f, RTXDI_TargetPdfHelper(canonicalReservoir, canonicalSurface, false));
 
     // Compute two pairwise MIS weights
     float w0 = RTXDI_PairwiseMisWeight(neighborWeightAtNeighbor, neighborWeightAtCanonical,
-        neighborReservoir.M * numberOfNeighborsInStream, canonicalReservor.M);
+        neighborReservoir.M * numberOfNeighborsInStream, canonicalReservoir.M);
     float w1 = RTXDI_PairwiseMisWeight(canonicalWeightAtNeighbor, canonicalWeightAtCanonical,
-        neighborReservoir.M * numberOfNeighborsInStream, canonicalReservor.M);
+        neighborReservoir.M * numberOfNeighborsInStream, canonicalReservoir.M);
 
     // Determine the effective M value when using pairwise MIS
     float M = neighborReservoir.M * min(

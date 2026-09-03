@@ -22,11 +22,11 @@ struct RTXDI_PathTracerContextParameters
     uint16_t maxRcVertexLength;
 
     // Hybrid shift params
-    uint16_t RcVertexLength;
-    uint16_t SelectedPathLength;
+    uint16_t rcVertexLength;
+    uint16_t selectedPathLength;
 
-    RTXDI_PTReconnectionParameters rParams;
-    RTXDI_PTReconnectionRuntimeParameters rrParams;
+    RTXDI_PTReconnectionParameters rcParams;
+    RTXDI_PTReconnectionRuntimeParameters rcrParams;
 };
 
 #endif // RTXDI_PATH_TRACING_CONTEXT_PARAMETERS_HLSLI

@@ -23,7 +23,7 @@ struct RTXDI_HybridShiftPathTracerContext
     void SetBrdfRaySample(RTXDI_BrdfRaySample raySample)
     {
         ptState.brdfRaySample = raySample;
-        SetContinuationRayBrdfOverPdf(raySample.BrdfTimesNoL / raySample.OutPdf);
+        SetContinuationRayBrdfOverPdf(raySample.brdfTimesNoL / raySample.outPdf);
     }
 
     void SetMaxPathBounce(uint16_t newMax)
@@ -41,7 +41,7 @@ struct RTXDI_HybridShiftPathTracerContext
         return false;
     }
 
-    void RecordRussianRouletteProbability(float RRProb)
+    void RecordRussianRouletteProbability(float rrProb)
     {
     }
 
@@ -50,9 +50,9 @@ struct RTXDI_HybridShiftPathTracerContext
         ptState.pathThroughput *= multiplicationFactor;
     }
 
-    void SetContinuationRay(RayDesc cr)
+    void SetContinuationRay(RayDesc continuationRay)
     {
-        ptState.ContinuationRay = cr;
+        ptState.continuationRay = continuationRay;
     }
 
     // Record data before tracing the continuation ray
@@ -60,20 +60,20 @@ struct RTXDI_HybridShiftPathTracerContext
     {
         if (ptState.IsLastVertexRough() && ptState.IsLastVertexFar())
         {
-            bool IsCurrentVertexRoughForConnection = false;
-            if(ReconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FIXED_THRESHOLD)
+            bool isCurrentVertexRoughForConnection = false;
+            if(reconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FIXED_THRESHOLD)
             {
-                IsCurrentVertexRoughForConnection = RAB_GetSurfaceRoughness(ptState.intersectionSurface) > RoughnessThreshold;
+                isCurrentVertexRoughForConnection = RAB_GetSurfaceRoughness(ptState.intersectionSurface) > roughnessThreshold;
             }
-            else if(ReconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT)
+            else if(reconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT)
             {
-                float InverseFootprint = RTXDI_CalculateRayFootprint(ptState.PreviousNormal, RAB_GetSurfaceViewDir(ptState.intersectionSurface), ptState.LastHitT, ptState.brdfRaySample);
-                IsCurrentVertexRoughForConnection = InverseFootprint > FootprintThreshold;
+                float inverseFootprint = RTXDI_CalculateRayFootprint(ptState.prevNormal, RAB_GetSurfaceViewDir(ptState.intersectionSurface), ptState.lastHitT, ptState.brdfRaySample);
+                isCurrentVertexRoughForConnection = inverseFootprint > footprintThreshold;
             }
 
-            if (IsCurrentVertexRoughForConnection)
+            if (isCurrentVertexRoughForConnection)
             {
-                Radiance = 0.f; // invalid shift
+                radiance = 0.f; // invalid shift
                 ptState.SetPathTermination(true);
                 return !IsPathTerminated();
             }
@@ -81,23 +81,23 @@ struct RTXDI_HybridShiftPathTracerContext
 
         // mark the current vertex to be rough for next vertex's reconnection condition test
         // the current vertex is "last vertex" in the next vertex's eyes
-        if(ReconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FIXED_THRESHOLD)
+        if(reconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FIXED_THRESHOLD)
         {
-            ptState.SetIsLastVertexRough(RAB_GetSurfaceRoughness(ptState.intersectionSurface) > RoughnessThreshold);
+            ptState.SetIsLastVertexRough(RAB_GetSurfaceRoughness(ptState.intersectionSurface) > roughnessThreshold);
         }
-        else if(ReconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT)
+        else if(reconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT)
         {
-            ptState.SetIsLastVertexRough(ptState.brdfRaySample.OutPdf <= PdfThreshold && !ptState.brdfRaySample.properties.IsDelta());
+            ptState.SetIsLastVertexRough(ptState.brdfRaySample.outPdf <= pdfThreshold && !ptState.brdfRaySample.properties.IsDelta());
         }
 
-        ptState.PreviousNormal = RAB_GetSurfaceNormal(ptState.intersectionSurface);
+        ptState.prevNormal = RAB_GetSurfaceNormal(ptState.intersectionSurface);
 
         return !IsPathTerminated();
     }
 
     void SetTraceResult(RAB_RayPayload rp)
     {
-        ptState.TraceResult = rp;
+        ptState.traceResult = rp;
     }
 
     void RecordPathIntersection(const RAB_Surface intersectionSurface)
@@ -105,16 +105,16 @@ struct RTXDI_HybridShiftPathTracerContext
         ptState.intersectionSurface = intersectionSurface;
         RAB_SetSurfaceNormal(ptState.intersectionSurface, normalize(RAB_GetSurfaceNormal(ptState.intersectionSurface)));
 
-        if(ReconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FIXED_THRESHOLD)
+        if(reconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FIXED_THRESHOLD)
         {
-            ptState.SetIsLastVertexFar(RAB_RayPayloadGetCommittedHitT(ptState.TraceResult) > DistanceThreshold && !ptState.brdfRaySample.properties.IsDelta());
+            ptState.SetIsLastVertexFar(RAB_RayPayloadGetCommittedHitT(ptState.traceResult) > distanceThreshold && !ptState.brdfRaySample.properties.IsDelta());
         }
-        else if (ReconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT)
+        else if (reconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT)
         {
             // compute the V_prev->V ray footprint, if it is above threshold, we mark last vertex as "far"
             // this is used when testing the current vertex is connectible
-            const float RayFootprint = RTXDI_CalculateRayFootprint(RAB_GetSurfaceNormal(ptState.intersectionSurface), RAB_GetSurfaceViewDir(ptState.intersectionSurface), RAB_RayPayloadGetCommittedHitT(ptState.TraceResult), ptState.brdfRaySample);
-            ptState.SetIsLastVertexFar(RayFootprint > FootprintThreshold);
+            const float rayFootprint = RTXDI_CalculateRayFootprint(RAB_GetSurfaceNormal(ptState.intersectionSurface), RAB_GetSurfaceViewDir(ptState.intersectionSurface), RAB_RayPayloadGetCommittedHitT(ptState.traceResult), ptState.brdfRaySample);
+            ptState.SetIsLastVertexFar(rayFootprint > footprintThreshold);
         }
 
         // Check invertibility conditions since we have arrived at the last vertex in random replay
@@ -138,29 +138,29 @@ struct RTXDI_HybridShiftPathTracerContext
             // Therefore, the base path doesn't satisfy this condition. So the offset path also shouldn't satisfy this condition. Otherwise, the light vertex
             // will be the rcVertex and the shift is not invertible
 
-            if ((ptState.IsLastVertexRough() || (RcVertexLength > SelectedPathLength)) && ptState.IsLastVertexFar())
+            if ((ptState.IsLastVertexRough() || (replayRcVertexLength > selectedPathLength)) && ptState.IsLastVertexFar())
             {
                 // case 1
                 // in this case, we need to check the inverse footprint using the scatterDir to rcVertex to determine invertbiiltiy
-                if (RcVertexLength <= SelectedPathLength)
+                if (replayRcVertexLength <= selectedPathLength)
                 {
-                    if(ReconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FIXED_THRESHOLD)
+                    if(reconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FIXED_THRESHOLD)
                     {
-                        if(ptState.IsLastVertexFar() && ptState.IsLastVertexRough() && RAB_GetSurfaceRoughness(intersectionSurface) > RoughnessThreshold)
+                        if(ptState.IsLastVertexFar() && ptState.IsLastVertexRough() && RAB_GetSurfaceRoughness(intersectionSurface) > roughnessThreshold)
                         {
-                            Radiance = float3(0.0f, 0.0f, 0.0f);
+                            radiance = float3(0.0f, 0.0f, 0.0f);
                             ptState.SetPathTermination(true);
                             return;
                         }
                     }
-                    else if (ReconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT)
+                    else if (reconnectionMode == RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT)
                     {
-                        CheckPreRcInverseGeoTerm = RAB_RayPayloadGetCommittedHitT(ptState.TraceResult) * RAB_RayPayloadGetCommittedHitT(ptState.TraceResult) / abs(dot(ptState.PreviousNormal, ptState.ContinuationRay.Direction));
+                        checkPreRcInverseGeoTerm = RAB_RayPayloadGetCommittedHitT(ptState.traceResult) * RAB_RayPayloadGetCommittedHitT(ptState.traceResult) / abs(dot(ptState.prevNormal, ptState.continuationRay.Direction));
                     }
                 }
                 else // case 2. This is non-invertible
                 {
-                    Radiance = float3(0.0f, 0.0f, 0.0f);
+                    radiance = float3(0.0f, 0.0f, 0.0f);
                     ptState.SetPathTermination(true);
                     return;
                 }
@@ -168,10 +168,10 @@ struct RTXDI_HybridShiftPathTracerContext
 
             // If the path could be invertible, we store IntersectionSurface of the current vertex, which is the vertex before the rcVertex
             // these values are used for the reconnection operation, and evaluating the path contribution
-            if (RcVertexLength <= SelectedPathLength)
+            if (replayRcVertexLength <= selectedPathLength)
             {
-                RcPrevSurface = ptState.intersectionSurface;
-                Radiance = ptState.pathThroughput; // partial path throughput
+                rcPrevSurface = ptState.intersectionSurface;
+                radiance = ptState.pathThroughput; // partial path throughput
 
                 ptState.SetPathTermination(true);
                 return;
@@ -185,7 +185,7 @@ struct RTXDI_HybridShiftPathTracerContext
         return ptState.bounceDepth == ptState.maxPathBounce;
     }
 
-    bool RecordEmissiveLightSample(float3 radianceFromEmissiveSurface, RAB_Surface prevSurface, inout RTXDI_RandomSamplerState RandContext)
+    bool RecordEmissiveLightSample(float3 radianceFromEmissiveSurface, RAB_Surface prevSurface, inout RTXDI_RandomSamplerState rng)
     {
         // Check invertibility conditions since we have arrived at the last vertex in random replay
         // also populate some variables since we will about to terminate
@@ -193,9 +193,9 @@ struct RTXDI_HybridShiftPathTracerContext
         {
             // This is the emissive radiance coming from the intersection the ray hits and the current surface where the ray is shot from
             float3 Le = radianceFromEmissiveSurface;
-            Le = (ptState.bounceDepth == SelectedPathLength) ? Le : 0.f;
+            Le = (ptState.bounceDepth == selectedPathLength) ? Le : 0.f;
 
-            Radiance += Le * ptState.pathThroughput;
+            radiance += Le * ptState.pathThroughput;
         }
         return true;
     }
@@ -210,7 +210,7 @@ struct RTXDI_HybridShiftPathTracerContext
                               in const float neePdf,
                               in const float scatterPdf,
                               in const RAB_LightSample lightSample,
-                              inout RTXDI_RandomSamplerState randContext)
+                              inout RTXDI_RandomSamplerState rng)
     {
         return false;
     }
@@ -225,10 +225,10 @@ struct RTXDI_HybridShiftPathTracerContext
                                          inout RTXDI_RandomSamplerState rng)
     {
         const bool bSecondaryBounce = ptState.IsSecondaryBounce();
-        if (ptState.bounceDepth == SelectedPathLength && !ptState.IsLastVertexRough() && !bSecondaryBounce)
+        if (ptState.bounceDepth == selectedPathLength && !ptState.IsLastVertexRough() && !bSecondaryBounce)
         {
             float3 Le = environmentMapRadiance;
-            Radiance += Le * ptState.pathThroughput;
+            radiance += Le * ptState.pathThroughput;
         }
         return true;
     }
@@ -238,32 +238,50 @@ struct RTXDI_HybridShiftPathTracerContext
         return ptState.IsPathTermination();
     }
 
+    void Init(const RTXDI_PathTracerContextParameters ptParams, const RAB_Surface primarySurface, inout RTXDI_PathTracerRandomContext ptRandContext)
+    {
+        ptState.initialBounceDepth = 2;
+        ptState.bounceDepth = ptState.initialBounceDepth;
+        ptState.maxPathBounce = (uint16_t)min(ptParams.rcVertexLength - 1, ptParams.selectedPathLength);
+        ptState.prevNormal = float3(0.0f, 0.0f, 0.0f);
+        ptState.pathThroughput = float3(1.0f, 1.0f, 1.0f);
+        ptState.intersectionSurface = primarySurface;
+
+        reconnectionMode = ptParams.rcParams.reconnectionMode;
+        RTXDI_CalculateFootprintParameters(ptParams.rcParams, ptParams.rcrParams, primarySurface, ptRandContext, footprintThreshold, pdfThreshold);
+        distanceThreshold = ptParams.rcParams.distanceThreshold;
+        roughnessThreshold = ptParams.rcParams.roughnessThreshold;
+
+        radiance = float3(0.0f, 0.0f, 0.0f);
+        rcPrevSurface = RAB_EmptySurface();
+    }
+
     //
     // Hybrid-shift specific functions
     //
 
     float GetCheckPreRcInverseGeoTerm()
     {
-        return CheckPreRcInverseGeoTerm;
+        return checkPreRcInverseGeoTerm;
     }
 
     //
     // Unused interface functions (i.e. InitialSampling version functions)
     //
 
-    float calculateRISWeight(float3 targetFunctionOverP)
+    float CalculateRISWeight(float3 targetFunctionOverP)
     {
         return 0.0;
     }
 
-    bool RISStreamPathSample(uint PathLength,
-                             float3 CurrentLightRadiance,
+    bool RISStreamPathSample(uint pathLength,
+                             float3 currentLightRadiance,
                              inout RTXDI_RandomSamplerState rng,
-                             uint RcVertexLength,
-                             bool IsNEE,
-                             float NeePdf,
-                             float3 PackedLightData,
-                             float PartialJacobian)
+                             uint rcVertexLength,
+                             bool isNee,
+                             float neePdf,
+                             float3 packedLightData,
+                             float partialJacobian)
     {
         return false;
     }
@@ -274,29 +292,29 @@ struct RTXDI_HybridShiftPathTracerContext
 
     RTXDI_PTReconnectionMode GetReconnectionMode()
     {
-        return ReconnectionMode;
+        return reconnectionMode;
     }
 
     // Fixed cutoff mode reconnection thrsholds
     float GetRoughnessThreshold()
     {
-        return RoughnessThreshold;
+        return roughnessThreshold;
     }
 
     float GetDistanceThreshold()
     {
-        return DistanceThreshold;
+        return distanceThreshold;
     }
 
     // Footprint reconnection threshold
     float GetPdfThreshold()
     {
-        return PdfThreshold;
+        return pdfThreshold;
     }
 
     float GetFootprintThreshold()
     {
-        return FootprintThreshold;
+        return footprintThreshold;
     }
 
     //
@@ -305,17 +323,17 @@ struct RTXDI_HybridShiftPathTracerContext
 
     RAB_Surface GetRcPrevSurface()
     {
-        return RcPrevSurface;
+        return rcPrevSurface;
     }
 
     void SetRcVertexLength(uint length)
     {
-        RcVertexLength = length;
+        replayRcVertexLength = length;
     }
 
     void SetSelectedPathLength(uint length)
     {
-        SelectedPathLength = length;
+        selectedPathLength = length;
     }
 
     float3 GetSelectedTargetFunction()
@@ -325,7 +343,7 @@ struct RTXDI_HybridShiftPathTracerContext
 
     float3 GetRadiance()
     {
-        return Radiance;
+        return radiance;
     }
 
     //
@@ -370,7 +388,7 @@ struct RTXDI_HybridShiftPathTracerContext
 
     RayDesc GetContinuationRay()
     {
-        return ptState.ContinuationRay;
+        return ptState.continuationRay;
     }
 
     float3 GetPathThroughput()
@@ -380,7 +398,7 @@ struct RTXDI_HybridShiftPathTracerContext
 
     RAB_RayPayload GetTraceResult()
     {
-        return ptState.TraceResult;
+        return ptState.traceResult;
     }
 
     void IncreaseBounceDepth()
@@ -396,7 +414,7 @@ struct RTXDI_HybridShiftPathTracerContext
 
     uint16_t GetRcVertexLength()
     {
-        return ptState.RcVertexLength;
+        return ptState.rcVertexLength;
     }
 
     //
@@ -417,9 +435,9 @@ struct RTXDI_HybridShiftPathTracerContext
 
     // Hybrid shift functions
 
-    void SetPathTermination(bool Value)
+    void SetPathTermination(bool value)
     {
-        ptState.SetPathTermination(Value);
+        ptState.SetPathTermination(value);
     }
 
     bool IsPathTermination()
@@ -429,9 +447,9 @@ struct RTXDI_HybridShiftPathTracerContext
 
     // PT Base Functions
 
-    void SetIsLastVertexFar(bool Value)
+    void SetIsLastVertexFar(bool value)
     {
-        ptState.SetIsLastVertexFar(Value);
+        ptState.SetIsLastVertexFar(value);
     }
 
     bool IsLastVertexFar()
@@ -439,9 +457,9 @@ struct RTXDI_HybridShiftPathTracerContext
         return ptState.IsLastVertexFar();
     }
 
-    void SetIsLastVertexRough(bool Value)
+    void SetIsLastVertexRough(bool value)
     {
-        ptState.SetIsLastVertexRough(Value);
+        ptState.SetIsLastVertexRough(value);
     }
 
     bool IsLastVertexRough()
@@ -457,61 +475,36 @@ struct RTXDI_HybridShiftPathTracerContext
 
     // Totally radiance carried from the path tree to the primary intersection divided by
     // the pdfs of producing the path tree
-    float3 Radiance;
+    float3 radiance;
 
-    uint SelectedPathLength;
+    uint selectedPathLength;
 
-    uint RcVertexLength;
+    uint replayRcVertexLength;
 
     // Secondary intersection
-    RAB_Surface RcPrevSurface;
+    RAB_Surface rcPrevSurface;
 
-    float FootprintThreshold;
-    float PdfThreshold;
+    float footprintThreshold;
+    float pdfThreshold;
 
-    float CheckPreRcInverseGeoTerm;
+    float checkPreRcInverseGeoTerm;
 
     //
     // Initial Sampling only state
     //
 
-    RAB_Surface SelectedRcSurface;
-    uint SelectedRcVertexLength;
-    float SelectedRcWiPdf;
-    float3 SelectedRcWiTargetFunction;
-    float RunningWeightSum;
-    float SelectedPartialJacobian;
+    RAB_Surface selectedRcSurface;
+    uint selectedRcVertexLength;
+    float selectedRcWiPdf;
+    float3 selectedRcWiTargetFunction;
+    float runningWeightSum;
+    float selectedPartialJacobian;
 
-    RTXDI_PTReconnectionMode ReconnectionMode;
-    float DistanceThreshold;
-    float RoughnessThreshold;
+    RTXDI_PTReconnectionMode reconnectionMode;
+    float distanceThreshold;
+    float roughnessThreshold;
 
     RTXDI_PathTracerState ptState;
 };
-
-RTXDI_HybridShiftPathTracerContext RTXDI_InitializeHybridShiftPathTracerContext(
-    const RTXDI_PathTracerContextParameters ptParams,
-    const RAB_Surface primarySurface,
-    inout RTXDI_PathTracerRandomContext ptRandContext)
-{
-    RTXDI_HybridShiftPathTracerContext ctx = (RTXDI_HybridShiftPathTracerContext)0;
-
-    ctx.ptState.initialBounceDepth = 2;
-    ctx.ptState.bounceDepth = ctx.ptState.initialBounceDepth;
-    ctx.ptState.maxPathBounce = (uint16_t)min(ptParams.RcVertexLength - 1, ptParams.SelectedPathLength);
-    ctx.ptState.PreviousNormal = float3(0.0f, 0.0f, 0.0f);
-    ctx.ptState.pathThroughput = float3(1.0f, 1.0f, 1.0f);
-    ctx.ptState.intersectionSurface = primarySurface;
-
-    ctx.ReconnectionMode = ptParams.rParams.reconnectionMode;
-    RTXDI_CalculateFootprintParameters(ptParams.rParams, ptParams.rrParams, primarySurface, ptRandContext, ctx.FootprintThreshold, ctx.PdfThreshold);
-    ctx.DistanceThreshold = ptParams.rParams.distanceThreshold;
-    ctx.RoughnessThreshold = ptParams.rParams.roughnessThreshold;
-
-    ctx.Radiance = float3(0.0f, 0.0f, 0.0f);
-    ctx.RcPrevSurface = RAB_EmptySurface();
-
-    return ctx;
-}
 
 #endif // RTXDI_HYBRID_SHIFT_PATH_TRACING_CONTEXT_HLSLI

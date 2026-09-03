@@ -40,45 +40,51 @@ struct RTXDI_PTReservoir
     using uint = uint32_t;
 #endif
 
-    static const uint MaxM = 0xffff;
+    static const uint maxM = 0xffff;
 
     // Position of the 2nd bounce surface (OR env map direction on miss?)
-    float3 TranslatedWorldPosition;
+    float3 translatedWorldPosition;
 
     // Overloaded: represents RIS weight sum during streaming,
     // then reservoir weight (inverse PDF) after FinalizeResampling
-    float WeightSum;
+    float weightSum;
 
     // Normal vector of the 2nd bounce surface.
-    float3 WorldNormal;
+    float3 worldNormal;
 
     // Number of samples considered for this reservoir
     float M;
 
     // Incoming radiance from the 2nd bounce surface.
-    float3 Radiance;
+    float3 radiance;
 
     // Number of frames the chosen sample has survived.
-    uint Age;
+    // when used for age-based sample rejection, it does not reset to 0 when the sample is replaced by a neighbor's sample in spatial reuse
+    // when used for temporal duplication map, it resets to 0 when the sample is replaced by a neighbor's sample in spatial reuse
+    uint age;
 
-    // In case that we use duplication-based MCap reduction, we check this in temporal reuse
-    int ShouldBoostSpatialSamples;
+    // General-purpose single-bit scratch flag packed into the reservoir. It carries different meaning
+    // at different pipeline stages, so always access it through the semantic alias getters/setters
+    // below rather than touching it directly:
+    //   RTXDI_Get/SetShouldBoostSpatialSamples - temporal->spatial.
+    //   RTXDI_Get/SetFireflyDetected           - spatial->FinalShading.
+    int auxFlag;
 
-    float RcWiPdf;
+    float rcWiPdf;
 
-    float PartialJacobian;
+    float partialJacobian;
 
     // Reconnection vertex length
-    uint RcVertexLength;
+    uint rcVertexLength;
 
     // Length of path from primary surface to the final light
-    uint PathLength;
+    uint pathLength;
 
-    uint RandomSeed;
+    uint randomSeed;
 
-    uint RandomIndex;
+    uint randomIndex;
 
-    float3 TargetFunction;
+    float3 targetFunction;
 };
 
 RTXDI_PTReservoir RTXDI_EmptyPTReservoir()
@@ -92,74 +98,98 @@ bool RTXDI_IsValidPTReservoir(const RTXDI_PTReservoir reservoir)
     return reservoir.M > 0;
 }
 
+// Semantic aliases over the reused single-bit auxFlag (see the struct comment). Both alias the same
+// storage; only one meaning is live at a time depending on the pipeline stage.
+
+// Set when temporal resampling doesn't find a neighbor: written by temporal resampling, read by spatial resampling.
+bool RTXDI_GetShouldBoostSpatialSamples(const RTXDI_PTReservoir reservoir)
+{
+    return reservoir.auxFlag != 0;
+}
+void RTXDI_SetShouldBoostSpatialSamples(inout RTXDI_PTReservoir reservoir, bool value)
+{
+    reservoir.auxFlag = value ? 1 : 0;
+}
+
+// Firefly-replacement flag: written at the end of spatial resampling (boiling filter), read by
+// FinalShading. Safe to reuse the same bit because MCap has already consumed it by then.
+bool RTXDI_GetFireflyDetected(const RTXDI_PTReservoir reservoir)
+{
+    return reservoir.auxFlag != 0;
+}
+void RTXDI_SetFireflyDetected(inout RTXDI_PTReservoir reservoir, bool value)
+{
+    reservoir.auxFlag = value ? 1 : 0;
+}
+
 // Adds `newReservoir` into `reservoir`, returns true if the new reservoir's sample was selected.
-// This is a very general form, allowing input parameters to specfiy normalization and target function
+// This is a very general form, allowing input parameters to specify normalization and target function
 // rather than computing them from `newReservoir`.  Named "internal" since these parameters take
-// different meanings (e.g., in RTXDI_CombineReservoirs() or RTXDI_StreamNeighborWithPairwiseMIS())
-bool InternalSimpleResample(inout RTXDI_PTReservoir targetReservoir,
-                            const RTXDI_PTReservoir NewReservoir,
-                            float Random,
-                            TARGET_FUNCTION_TYPE NewTargetFunction, // Usually closely related to the sample normalization,
-                            float SampleNormalization, //     typically off by some multiplicative factor
-                            float SampleM // In its most basic form, should be newReservoir.M
+// different meanings (e.g., in RTXDI_CombinePTReservoirs())
+bool RTXDI_InternalSimplePTResample(inout RTXDI_PTReservoir targetReservoir,
+                            const RTXDI_PTReservoir newReservoir,
+                            float random,
+                            TARGET_FUNCTION_TYPE newTargetFunction, // Usually closely related to the sample normalization,
+                            float sampleNormalization, //     typically off by some multiplicative factor
+                            float sampleM // In its most basic form, should be newReservoir.M
 )
 {
     // What's the current weight (times any prior-step RIS normalization factor)
-    float RisWeight = RTXDI_Luminance(NewTargetFunction) * SampleNormalization;
-    RisWeight = (isnan(RisWeight) || isinf(RisWeight)) ? 0.0f : RisWeight;
+    float risWeight = RTXDI_Luminance(newTargetFunction) * sampleNormalization;
+    risWeight = (isnan(risWeight) || isinf(risWeight)) ? 0.0f : risWeight;
 
     // Our *effective* candidate pool is the sum of our candidates plus those of our neighbors
-    targetReservoir.M += SampleM;
+    targetReservoir.M += sampleM;
 
     // Update the weight sum
-    targetReservoir.WeightSum += RisWeight;
+    targetReservoir.weightSum += risWeight;
 
     // Decide if we will randomly pick this sample
-    const bool SelectSample = (Random * targetReservoir.WeightSum < RisWeight);
+    const bool selectSample = (random * targetReservoir.weightSum < risWeight);
 
     // If we did select this sample, update the relevant data
-    if (SelectSample)
+    if (selectSample)
     {
-        targetReservoir.TranslatedWorldPosition = NewReservoir.TranslatedWorldPosition;
-        targetReservoir.Radiance = NewReservoir.Radiance;
-        targetReservoir.WorldNormal = NewReservoir.WorldNormal;
-        targetReservoir.Age = NewReservoir.Age;
+        targetReservoir.translatedWorldPosition = newReservoir.translatedWorldPosition;
+        targetReservoir.radiance = newReservoir.radiance;
+        targetReservoir.worldNormal = newReservoir.worldNormal;
+        targetReservoir.age = newReservoir.age;
 
-        targetReservoir.TargetFunction = NewTargetFunction;
-        targetReservoir.RandomSeed = NewReservoir.RandomSeed;
-        targetReservoir.RandomIndex = NewReservoir.RandomIndex;
-        targetReservoir.RcVertexLength = NewReservoir.RcVertexLength;
-        targetReservoir.PathLength = NewReservoir.PathLength;
-        targetReservoir.PartialJacobian = NewReservoir.PartialJacobian;
-        targetReservoir.RcWiPdf = NewReservoir.RcWiPdf;
+        targetReservoir.targetFunction = newTargetFunction;
+        targetReservoir.randomSeed = newReservoir.randomSeed;
+        targetReservoir.randomIndex = newReservoir.randomIndex;
+        targetReservoir.rcVertexLength = newReservoir.rcVertexLength;
+        targetReservoir.pathLength = newReservoir.pathLength;
+        targetReservoir.partialJacobian = newReservoir.partialJacobian;
+        targetReservoir.rcWiPdf = newReservoir.rcWiPdf;
     }
 
-    return SelectSample;
+    return selectSample;
 }
 
 // Adds a reservoir with one sample into this reservoir.
 // Algorithm (4) from the ReSTIR paper, Combining the streams of multiple reservoirs.
 // Normalization - Equation (6) - is postponed until all reservoirs are combined.
-bool CombineReservoirs(inout RTXDI_PTReservoir targetReservoir, RTXDI_PTReservoir NewReservoir, float Random, TARGET_FUNCTION_TYPE NewTargetFunction)
+bool RTXDI_CombinePTReservoirs(inout RTXDI_PTReservoir targetReservoir, RTXDI_PTReservoir newReservoir, float random, TARGET_FUNCTION_TYPE newTargetFunction)
 {
-    return InternalSimpleResample(targetReservoir, NewReservoir, Random, NewTargetFunction, NewReservoir.WeightSum * NewReservoir.M, NewReservoir.M);
+    return RTXDI_InternalSimplePTResample(targetReservoir, newReservoir, random, newTargetFunction, newReservoir.weightSum * newReservoir.M, newReservoir.M);
 }
 
-void RTXDI_FinalizeResampling(inout RTXDI_PTReservoir reservoir, in float Numerator, in float Denominator)
+void RTXDI_FinalizePTResampling(inout RTXDI_PTReservoir reservoir, in float numerator, in float denominator)
 {
-    reservoir.WeightSum = (Denominator > 0.0) ? (Numerator * reservoir.WeightSum / Denominator) : 0.f;
+    reservoir.weightSum = (denominator > 0.0) ? (numerator * reservoir.weightSum / denominator) : 0.f;
 }
 
 bool RTXDI_ConnectsToNeeLight(RTXDI_PTReservoir reservoir)
 {
-    return isinf(reservoir.Radiance.x);
+    return isinf(reservoir.radiance.x);
 }
 
 RTXDI_SampledLightData RTXDI_GetSampledLightData(RTXDI_PTReservoir reservoir)
 {
     RTXDI_SampledLightData sampledLightData;
-    sampledLightData.lightData = asuint(reservoir.Radiance.y);
-    sampledLightData.uvData = asuint(reservoir.Radiance.z);
+    sampledLightData.lightData = asuint(reservoir.radiance.y);
+    sampledLightData.uvData = asuint(reservoir.radiance.z);
     return sampledLightData;
 }
 
@@ -174,39 +204,40 @@ RTXDI_SampledLightData RTXDI_GetSampledLightData(RTXDI_PTReservoir reservoir)
  */
 RTXDI_RandomSamplerState RTXDI_GetRngForShading(RTXDI_PTReservoir reservoir)
 {
-    return RTXDI_CreateRandomSamplerFromDirectSeed(reservoir.RandomSeed, reservoir.RandomIndex + 6);
+    return RTXDI_CreateRandomSamplerFromDirectSeed(reservoir.randomSeed, reservoir.randomIndex + 4);
 }
 
 // Creates a PT reservoir from a raw light sample.
 // Note: the original sample PDF can be embedded into sampleRadiance, in which case the samplePdf parameter should be set to 1.0.
-RTXDI_PTReservoir RTXDI_MakePTReservoir(const float3 TargetFunction,
-                                        const uint RandomSeed,
-                                        const uint RandomIndex,
-                                        const uint RcVertexLength,
-                                        const uint PathLength,
-                                        const float PartialJacobian,
-                                        const float RcWiPdf,
+RTXDI_PTReservoir RTXDI_MakePTReservoir(const float3 targetFunction,
+                                        const uint randomSeed,
+                                        const uint randomIndex,
+                                        const uint rcVertexLength,
+                                        const uint pathLength,
+                                        const float partialJacobian,
+                                        const float rcWiPdf,
 
-                                        const float3 TranslatedWorldPosition,
-                                        const float3 WorldNormal,
-                                        const float3 Radiance,
-                                        const float SamplePdf)
+                                        const float3 translatedWorldPosition,
+                                        const float3 worldNormal,
+                                        const float3 radiance,
+                                        const float samplePdf)
 {
     RTXDI_PTReservoir reservoir = (RTXDI_PTReservoir)0;
-    reservoir.TranslatedWorldPosition = TranslatedWorldPosition;
-    reservoir.WorldNormal = WorldNormal;
-    reservoir.Radiance = Radiance;
-    reservoir.WeightSum = SamplePdf > 0.0 ? 1.0 / SamplePdf : 0.0;
+    reservoir.translatedWorldPosition = translatedWorldPosition;
+    reservoir.worldNormal = worldNormal;
+    reservoir.radiance = radiance;
+    reservoir.weightSum = samplePdf > 0.0 ? 1.0 / samplePdf : 0.0;
     reservoir.M = 1;
-    reservoir.Age = 0;
+    reservoir.age = 0;
+    reservoir.auxFlag = 0;
 
-    reservoir.TargetFunction = TargetFunction;
-    reservoir.RandomSeed = RandomSeed;
-    reservoir.RandomIndex = RandomIndex;
-    reservoir.PartialJacobian = PartialJacobian;
-    reservoir.RcVertexLength = RcVertexLength;
-    reservoir.PathLength = PathLength;
-    reservoir.RcWiPdf = RcWiPdf;
+    reservoir.targetFunction = targetFunction;
+    reservoir.randomSeed = randomSeed;
+    reservoir.randomIndex = randomIndex;
+    reservoir.partialJacobian = partialJacobian;
+    reservoir.rcVertexLength = rcVertexLength;
+    reservoir.pathLength = pathLength;
+    reservoir.rcWiPdf = rcWiPdf;
 
     return reservoir;
 }
@@ -215,85 +246,85 @@ RTXDI_PTReservoir RTXDI_MakePTReservoir(const float3 TargetFunction,
 // Packing and Unpacking
 //
 
-uint2 EncodeSnorm3x16(float3 Value)
+uint2 EncodeSnorm3x16(float3 value)
 {
-    const uint x = uint(round(clamp(Value.x, -1.0, 1.0) * 32767.0) + 32767.0);
-    const uint y = uint(round(clamp(Value.y, -1.0, 1.0) * 32767.0) + 32767.0);
-    const uint z = uint(round(clamp(Value.z, -1.0, 1.0) * 32767.0) + 32767.0);
+    const uint x = uint(round(clamp(value.x, -1.0, 1.0) * 32767.0) + 32767.0);
+    const uint y = uint(round(clamp(value.y, -1.0, 1.0) * 32767.0) + 32767.0);
+    const uint z = uint(round(clamp(value.z, -1.0, 1.0) * 32767.0) + 32767.0);
     return uint2((x & 0x0000ffff) | (y << 16), (z & 0x0000ffff));
 }
 
-float3 DecodeSnorm3x16(uint2 PackedValue)
+float3 DecodeSnorm3x16(uint2 packedValue)
 {
-    return float3(clamp((float(PackedValue.x & 0xffff) - 32767.0f) * rcp(32767.0f), -1.0, 1.0), clamp((float(PackedValue.x >> 16u) - 32767.0f) * rcp(32767.0f), -1.0, 1.0),
-                  clamp((float(PackedValue.y & 0xffff) - 32767.0f) * rcp(32767.0f), -1.0, 1.0));
+    return float3(clamp((float(packedValue.x & 0xffff) - 32767.0f) * rcp(32767.0f), -1.0, 1.0), clamp((float(packedValue.x >> 16u) - 32767.0f) * rcp(32767.0f), -1.0, 1.0),
+                  clamp((float(packedValue.y & 0xffff) - 32767.0f) * rcp(32767.0f), -1.0, 1.0));
 }
 
 RTXDI_PackedPTReservoir RTXDI_PackPTReservoir(RTXDI_PTReservoir reservoir)
 {
-    RTXDI_PackedPTReservoir PackedData = (RTXDI_PackedPTReservoir)0;
-    PackedData.Data0.xyz = asuint(reservoir.TranslatedWorldPosition);
-    PackedData.Data0.w = asuint(reservoir.WeightSum);
-    PackedData.Data2.xyz = asuint(reservoir.Radiance);
-    PackedData.Data2.w = (reservoir.Age & RTXDI_PTRESERVOIR_AGE_MAX);
-    PackedData.Data2.w |= reservoir.ShouldBoostSpatialSamples ? 0x80 : 0x0;
+    RTXDI_PackedPTReservoir packedData = (RTXDI_PackedPTReservoir)0;
+    packedData.Data0.xyz = asuint(reservoir.translatedWorldPosition);
+    packedData.Data0.w = asuint(reservoir.weightSum);
+    packedData.Data2.xyz = asuint(reservoir.radiance);
+    packedData.Data2.w = (reservoir.age & RTXDI_PTRESERVOIR_AGE_MAX);
+    packedData.Data2.w |= reservoir.auxFlag ? 0x80 : 0x0;
 
-    PackedData.Data1.xy = EncodeSnorm3x16(reservoir.WorldNormal);
-    PackedData.Data1.y |= f32tof16(reservoir.M) << 16;
-    PackedData.Data1.z = asuint(reservoir.PartialJacobian);
-    PackedData.Data1.w = asuint(reservoir.RcWiPdf);
-    PackedData.Data2.w = (PackedData.Data2.w & 0xff) | ((reservoir.RcVertexLength & 0xff) << 8) | ((reservoir.PathLength & 0xff) << 16) | ((reservoir.RandomIndex & 0xff) << 24);
-    PackedData.Data3.xyz = asuint(reservoir.TargetFunction);
-    PackedData.Data3.w = reservoir.RandomSeed;
+    packedData.Data1.xy = EncodeSnorm3x16(reservoir.worldNormal);
+    packedData.Data1.y |= f32tof16(reservoir.M) << 16;
+    packedData.Data1.z = asuint(reservoir.partialJacobian);
+    packedData.Data1.w = asuint(reservoir.rcWiPdf);
+    packedData.Data2.w = (packedData.Data2.w & 0xff) | ((reservoir.rcVertexLength & 0xff) << 8) | ((reservoir.pathLength & 0xff) << 16) | ((reservoir.randomIndex & 0xff) << 24);
+    packedData.Data3.xyz = asuint(reservoir.targetFunction);
+    packedData.Data3.w = reservoir.randomSeed;
 
-    return PackedData;
+    return packedData;
 }
 
 // RTXDI_PTReservoir RTXDI_PTReservoirFromPackedData(in const RTXDI_PackedPTReservoir PackedData)
-RTXDI_PTReservoir RTXDI_UnpackPTReservoir(in const RTXDI_PackedPTReservoir PackedData)
+RTXDI_PTReservoir RTXDI_UnpackPTReservoir(in const RTXDI_PackedPTReservoir packedData)
 {
-    RTXDI_PTReservoir Reservoir = (RTXDI_PTReservoir)0;
+    RTXDI_PTReservoir unpacked = (RTXDI_PTReservoir)0;
 
-    Reservoir.TranslatedWorldPosition = asfloat(PackedData.Data0.xyz);
-    Reservoir.WeightSum = asfloat(PackedData.Data0.w);
-    Reservoir.Radiance = asfloat(PackedData.Data2.xyz);
-    Reservoir.Age = PackedData.Data2.w & RTXDI_PTRESERVOIR_AGE_MAX;
+    unpacked.translatedWorldPosition = asfloat(packedData.Data0.xyz);
+    unpacked.weightSum = asfloat(packedData.Data0.w);
+    unpacked.radiance = asfloat(packedData.Data2.xyz);
+    unpacked.age = packedData.Data2.w & RTXDI_PTRESERVOIR_AGE_MAX;
 
-    Reservoir.WorldNormal = normalize(DecodeSnorm3x16(PackedData.Data1.xy));
-    Reservoir.M = f16tof32(PackedData.Data1.y >> 16);
-    Reservoir.ShouldBoostSpatialSamples = ((PackedData.Data2.w & 0x80) != 0x0);
-    Reservoir.TargetFunction = asfloat(PackedData.Data3.xyz);
-    Reservoir.RcWiPdf = asfloat(PackedData.Data1.w);
-    Reservoir.PartialJacobian = asfloat(PackedData.Data1.z);
-    Reservoir.RcVertexLength = (PackedData.Data2.w >> 8) & 0xFF;
-    Reservoir.PathLength = (PackedData.Data2.w >> 16) & 0xFF;
-    Reservoir.RandomIndex = (PackedData.Data2.w >> 24) & 0xFF;
-    Reservoir.RandomSeed = PackedData.Data3.w;
+    unpacked.worldNormal = normalize(DecodeSnorm3x16(packedData.Data1.xy));
+    unpacked.M = f16tof32(packedData.Data1.y >> 16);
+    unpacked.auxFlag = ((packedData.Data2.w & 0x80) != 0x0);
+    unpacked.targetFunction = asfloat(packedData.Data3.xyz);
+    unpacked.rcWiPdf = asfloat(packedData.Data1.w);
+    unpacked.partialJacobian = asfloat(packedData.Data1.z);
+    unpacked.rcVertexLength = (packedData.Data2.w >> 8) & 0xff;
+    unpacked.pathLength = (packedData.Data2.w >> 16) & 0xff;
+    unpacked.randomIndex = (packedData.Data2.w >> 24) & 0xff;
+    unpacked.randomSeed = packedData.Data3.w;
 
-    return Reservoir;
+    return unpacked;
 }
 
 //
 // Loading and Storing
 //
 
-uint ComputePTReservoirAddress(uint2 PixelCoord, int2 BufferDim, int Slice)
+uint ComputePTReservoirAddress(uint2 pixelCoord, int2 bufferDim, int slice)
 {
-    static const uint TileSize = 4;
+    static const uint tileSize = 4;
 
-    const int2 PaddedBufferDim = (BufferDim + TileSize - 1) / TileSize * TileSize;
+    const int2 paddedBufferDim = (bufferDim + tileSize - 1) / tileSize * tileSize;
 
-    const uint RowStride = PaddedBufferDim.x * TileSize;
+    const uint rowStride = paddedBufferDim.x * tileSize;
 
-    int2 Tile = PixelCoord / TileSize;
-    int2 TileCoord = PixelCoord % TileSize;
+    int2 tile = pixelCoord / tileSize;
+    int2 tileCoord = pixelCoord % tileSize;
 
-    uint Address = Slice * PaddedBufferDim.x * PaddedBufferDim.y;
-    Address += Tile.y * RowStride;
-    Address += Tile.x * TileSize * TileSize;
-    Address += TileCoord.y * TileSize + TileCoord.x;
+    uint address = slice * paddedBufferDim.x * paddedBufferDim.y;
+    address += tile.y * rowStride;
+    address += tile.x * tileSize * tileSize;
+    address += tileCoord.y * tileSize + tileCoord.x;
 
-    return Address;
+    return address;
 }
 
 void RTXDI_StorePackedPTReservoir(const RTXDI_PackedPTReservoir packedPTReservoir, RTXDI_ReservoirBufferParameters reservoirParams, uint2 reservoirPosition, uint reservoirArrayIndex)

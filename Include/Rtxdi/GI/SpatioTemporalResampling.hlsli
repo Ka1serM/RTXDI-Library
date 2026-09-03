@@ -24,11 +24,11 @@ RTXDI_GIReservoir RTXDI_GISpatioTemporalResampling(
 	const float3 screenSpaceMotion,
     RTXDI_GIReservoir inputReservoir,
     inout RTXDI_RandomSamplerState rng,
-    const RTXDI_RuntimeParameters params,
+    const RTXDI_RuntimeParameters rParams,
     const RTXDI_ReservoirBufferParameters reservoirParams,
     const RTXDI_GISpatioTemporalResamplingParameters stparams)
 {
-    // Backproject this pixel to last frame
+    // Backproject this pixel to the previous frame
     int2 prevPos = int2(round(float2(pixelPosition) + screenSpaceMotion.xy));
     const float expectedPrevLinearDepth = RAB_GetSurfaceLinearDepth(surface) + screenSpaceMotion.z;
 
@@ -68,8 +68,8 @@ RTXDI_GIReservoir RTXDI_GISpatioTemporalResampling(
     const int totalSampleCount = min(totalTemporalSampleCount + int(stparams.numSamples), 32);
 
     const int temporalSampleStartIdx = int(RTXDI_GetNextRandom(rng) * 8);
-    const int temporalJitterRadius = (params.activeCheckerboardField == 0) ? 1 : 2;
-    const int neighborSampleStartIdx = int(RTXDI_GetNextRandom(rng) * params.neighborOffsetMask);
+    const int temporalJitterRadius = (rParams.activeCheckerboardField == 0) ? 1 : 2;
+    const int neighborSampleStartIdx = int(RTXDI_GetNextRandom(rng) * rParams.neighborOffsetMask);
 
     // Walk the specified number of spatial neighbors, resampling using RIS
     for (int i = 0; i < totalSampleCount; ++i)
@@ -117,11 +117,11 @@ RTXDI_GIReservoir RTXDI_GISpatioTemporalResampling(
         }
         else
         {
-            idx = prevPos + RTXDI_CalculateSpatialResamplingOffset(neighborSampleStartIdx + i, stparams.samplingRadius, params.neighborOffsetMask);
+            idx = prevPos + RTXDI_CalculateSpatialResamplingOffset(neighborSampleStartIdx + i, stparams.samplingRadius, rParams.neighborOffsetMask);
             idx = RAB_ClampSamplePositionIntoView(idx, true);
         }
 
-        RTXDI_ActivateCheckerboardPixel(idx, true, params.activeCheckerboardField);
+        RTXDI_ActivateCheckerboardPixel(idx, true, rParams.activeCheckerboardField);
 
         RAB_Surface neighborSurface = RAB_GetGBufferSurface(idx, true);
 
@@ -141,7 +141,7 @@ RTXDI_GIReservoir RTXDI_GISpatioTemporalResampling(
             continue;
         }
 
-        const uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField);
+        const uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField);
         RTXDI_GIReservoir neighborReservoir = RTXDI_LoadGIReservoir(reservoirParams, neighborReservoirPos, sourceBufferIndex);
 
         if (!RTXDI_IsValidGIReservoir(neighborReservoir))
@@ -176,7 +176,7 @@ RTXDI_GIReservoir RTXDI_GISpatioTemporalResampling(
         // Make the sample older
         ++neighborReservoir.age;
 
-        // Valid neighbor surface and its GI reservoir. Combine the reservor.
+        // Valid neighbor surface and its GI reservoir. Combine the reservoir.
         cachedResult |= (1u << uint(i));
 
         // Combine
@@ -195,8 +195,8 @@ RTXDI_GIReservoir RTXDI_GISpatioTemporalResampling(
         float pi = selectedTargetPdf;
         float piSum = selectedTargetPdf * inputReservoir.M;
 
-        // If the GI reservoir has selected other than the initial sample, the position should be come from the previous frame.
-        // However, there is no idea for the previous position of the initial GI reservoir, so it just uses the current position as its previous one.
+        // If the GI reservoir has selected other than the initial sample, the position should come from the previous frame.
+        // However, there is no recorded previous position for the initial GI reservoir, so it uses the current position as a stand-in.
         // float3 selectedPositionInPreviousFrame = curReservoir.position;
 
         // We need to walk our neighbors again
@@ -225,16 +225,16 @@ RTXDI_GIReservoir RTXDI_GISpatioTemporalResampling(
             }
             else
             {
-                idx = prevPos + RTXDI_CalculateSpatialResamplingOffset(neighborSampleStartIdx + i, stparams.samplingRadius, params.neighborOffsetMask);
+                idx = prevPos + RTXDI_CalculateSpatialResamplingOffset(neighborSampleStartIdx + i, stparams.samplingRadius, rParams.neighborOffsetMask);
                 idx = RAB_ClampSamplePositionIntoView(idx, true);
             }
 
-            RTXDI_ActivateCheckerboardPixel(idx, true, params.activeCheckerboardField);
+            RTXDI_ActivateCheckerboardPixel(idx, true, rParams.activeCheckerboardField);
 
             // Load our neighbor's G-buffer and its GI reservoir again.
             RAB_Surface neighborSurface = RAB_GetGBufferSurface(idx, true);
 
-            const uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, params.activeCheckerboardField);
+            const uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(idx, rParams.activeCheckerboardField);
             RTXDI_GIReservoir neighborReservoir = RTXDI_LoadGIReservoir(reservoirParams, neighborReservoirPos, sourceBufferIndex);
 
             // Clamp history length

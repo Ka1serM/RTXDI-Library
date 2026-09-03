@@ -77,7 +77,7 @@ struct RTXDI_GITemporalResamplingParameters //ReSTIRGI_TemporalResamplingParamet
 
     // Enables resampling from a location around the current pixel instead of what the motion vector points at,
     // in case no surface near the motion vector matches the current surface (e.g. disocclusion).
-    // This behavoir makes disocclusion areas less noisy but locally biased, usually darker.
+    // This behavior makes disocclusion areas less noisy but locally biased, usually darker.
     uint32_t enableFallbackSampling;
 
     // Controls the bias correction math for temporal reuse. Depending on the setting, it can add

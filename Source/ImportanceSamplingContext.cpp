@@ -48,10 +48,10 @@ ImportanceSamplingContext::ImportanceSamplingContext(const ImportanceSamplingCon
     debugCheckParameters(isParams.localLightRISBufferParams, isParams.environmentLightRISBufferParams);
 
     m_risBufferSegmentAllocator = std::make_unique<rtxdi::RISBufferSegmentAllocator>();
-    m_localLightRISBufferSegmentParams.bufferOffset = m_risBufferSegmentAllocator->allocateSegment(isParams.localLightRISBufferParams.tileCount * isParams.localLightRISBufferParams.tileSize);
+    m_localLightRISBufferSegmentParams.bufferOffset = m_risBufferSegmentAllocator->AllocateSegment(isParams.localLightRISBufferParams.tileCount * isParams.localLightRISBufferParams.tileSize);
     m_localLightRISBufferSegmentParams.tileCount = isParams.localLightRISBufferParams.tileCount;
     m_localLightRISBufferSegmentParams.tileSize = isParams.localLightRISBufferParams.tileSize;
-    m_environmentLightRISBufferSegmentParams.bufferOffset = m_risBufferSegmentAllocator->allocateSegment(isParams.environmentLightRISBufferParams.tileCount * isParams.environmentLightRISBufferParams.tileSize);
+    m_environmentLightRISBufferSegmentParams.bufferOffset = m_risBufferSegmentAllocator->AllocateSegment(isParams.environmentLightRISBufferParams.tileCount * isParams.environmentLightRISBufferParams.tileSize);
     m_environmentLightRISBufferSegmentParams.tileCount = isParams.environmentLightRISBufferParams.tileCount;
     m_environmentLightRISBufferSegmentParams.tileSize = isParams.environmentLightRISBufferParams.tileSize;
     

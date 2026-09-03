@@ -24,8 +24,8 @@ class RISBufferSegmentAllocator
 public:
     RISBufferSegmentAllocator();
     // Returns starting offset of segment in buffer
-    uint32_t allocateSegment(uint32_t sizeInElements);
-    uint32_t getTotalSizeInElements() const;
+    uint32_t AllocateSegment(uint32_t sizeInElements);
+    uint32_t GetTotalSizeInElements() const;
 
 private:
     uint32_t m_totalSizeInElements;

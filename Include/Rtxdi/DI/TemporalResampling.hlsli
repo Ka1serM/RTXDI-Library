@@ -31,7 +31,7 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
     RAB_Surface surface,
     RTXDI_DIReservoir curSample,
     inout RTXDI_RandomSamplerState rng,
-    RTXDI_RuntimeParameters params,
+    RTXDI_RuntimeParameters rParams,
     RTXDI_ReservoirBufferParameters reservoirParams,
 	float3 screenSpaceMotion,
 	uint sourceBufferIndex,
@@ -53,7 +53,7 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
     RTXDI_DIReservoir state = RTXDI_EmptyDIReservoir();
     RTXDI_CombineDIReservoirs(state, curSample, /* random = */ 0.5, curSample.targetPdf);
 
-    // Backproject this pixel to last frame
+    // Backproject this pixel to the previous frame
     float3 motion = screenSpaceMotion;
     
     if (!tparams.enablePermutationSampling)
@@ -68,7 +68,7 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
 
     RAB_Surface temporalSurface = RAB_EmptySurface();
     bool foundNeighbor = false;
-    const float radius = (params.activeCheckerboardField == 0) ? 4 : 8;
+    const float radius = (rParams.activeCheckerboardField == 0) ? 4 : 8;
     int2 spatialOffset = int2(0, 0);
 
     // Try to find a matching surface in the neighborhood of the reprojected pixel
@@ -87,9 +87,9 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
             RTXDI_ApplyPermutationSampling(idx, tparams.uniformRandomNumber);
         }
 
-        RTXDI_ActivateCheckerboardPixel(idx, true, params.activeCheckerboardField);
+        RTXDI_ActivateCheckerboardPixel(idx, true, rParams.activeCheckerboardField);
 
-        // Grab shading / g-buffer data from last frame
+        // Grab shading / g-buffer data from the previous frame
         temporalSurface = RAB_GetGBufferSurface(idx, true);
         if (!RAB_IsSurfaceValid(temporalSurface))
             continue;
@@ -109,13 +109,13 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
     }
 
     bool selectedPreviousSample = false;
-    float previousM = 0;
+    float prevM = 0;
 
     if (foundNeighbor)
     {
         // Resample the previous frame sample into the current reservoir, but reduce the light's weight
         // according to the bilinear weight of the current pixel
-        uint2 prevReservoirPos = RTXDI_PixelPosToReservoirPos(prevPos, params.activeCheckerboardField);
+        uint2 prevReservoirPos = RTXDI_PixelPosToReservoirPos(prevPos, rParams.activeCheckerboardField);
         RTXDI_DIReservoir prevSample = RTXDI_LoadDIReservoir(reservoirParams,
             prevReservoirPos, sourceBufferIndex);
         prevSample.M = min(prevSample.M, historyLimit);
@@ -147,7 +147,7 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
             }
         }
 
-        previousM = prevSample.M;
+        prevM = prevSample.M;
 
         float weightAtCurrent = 0;
         RAB_LightSample candidateLightSample = RAB_EmptyLightSample();
@@ -177,7 +177,7 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
         float pi = state.targetPdf;
         float piSum = state.targetPdf * curSample.M;
         
-        if (RTXDI_IsValidDIReservoir(state) && selectedLightPrevID >= 0 && previousM > 0)
+        if (RTXDI_IsValidDIReservoir(state) && selectedLightPrevID >= 0 && prevM > 0)
         {
             float temporalP = 0;
 
@@ -200,7 +200,7 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
 #endif
 
             pi = selectedPreviousSample ? temporalP : pi;
-            piSum += temporalP * previousM;
+            piSum += temporalP * prevM;
         }
 
         RTXDI_FinalizeResampling(state, pi, piSum);
