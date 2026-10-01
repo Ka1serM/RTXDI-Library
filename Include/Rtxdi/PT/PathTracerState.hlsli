@@ -22,7 +22,7 @@
 #define PT_STATE_PATH_TERMINATION          0x08
 #define PT_STATE_LAST_VERTEX_NEARDELTA     0x10
 
-class RTXDI_PathTracerState
+struct RTXDI_PathTracerState
 {
     // Base state
 
@@ -32,7 +32,7 @@ class RTXDI_PathTracerState
     }
 
     // Reset partial state for the next path
-    void BeginPathState()
+    RTXDI_MUTATING void BeginPathState()
     {
         lastHitT = RAB_RayPayloadGetCommittedHitT(traceResult);
 
@@ -44,7 +44,7 @@ class RTXDI_PathTracerState
 
     // Hybrid shift functions
 
-    void SetPathTermination(bool value)
+    RTXDI_MUTATING void SetPathTermination(bool value)
     {
         ptStateFlags &= ~PT_STATE_PATH_TERMINATION;
         ptStateFlags |= value ? PT_STATE_PATH_TERMINATION : 0x0;
@@ -57,7 +57,7 @@ class RTXDI_PathTracerState
 
     // PT Base Functions
 
-    void SetIsLastVertexFar(bool value)
+    RTXDI_MUTATING void SetIsLastVertexFar(bool value)
     {
         ptStateFlags &= ~PT_STATE_LAST_VERTEX_FAR;
         ptStateFlags |= value ? PT_STATE_LAST_VERTEX_FAR : 0x0;
@@ -68,7 +68,7 @@ class RTXDI_PathTracerState
         return (ptStateFlags & PT_STATE_LAST_VERTEX_FAR) != 0;
     }
 
-    void SetIsLastVertexRough(bool value)
+    RTXDI_MUTATING void SetIsLastVertexRough(bool value)
     {
         ptStateFlags &= ~PT_STATE_LAST_VERTEX_ROUGH;
         ptStateFlags |= value ? PT_STATE_LAST_VERTEX_ROUGH : 0x0;
@@ -149,7 +149,7 @@ class RTXDI_PathTracerState
 
 RTXDI_PathTracerState RTXDI_EmptyPathTracerState()
 {
-    return (RTXDI_PathTracerState)0;
+    RTXDI_PathTracerState state = {}; return state;
 }
 
 RTXDI_PathTracerState RTXDI_InitializePathTracerState(RAB_Surface surface, uint maxBounces)

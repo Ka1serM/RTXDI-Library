@@ -14,7 +14,14 @@
 #define RTXDI_PT_HYBRID_SHIFT_HLSLI
 
 #include "Rtxdi/PT/HybridShiftPathTracerContext.hlsli"
+#if defined(RTXDI_SLANG)
+#define RTXDI_HYBRID_CONTEXT RTXDI_PathTracerContextHybrid
+#define RTXDI_HYBRID_CONTEXT_INIT RTXDI_InitializePathTracerContextHybrid
+#else
 #include "Rtxdi/PT/PathTracerContext.hlsli"
+#define RTXDI_HYBRID_CONTEXT RTXDI_PathTracerContext<RTXDI_HybridShiftPathTracerContext>
+#define RTXDI_HYBRID_CONTEXT_INIT RTXDI_InitializePathTracerContext<RTXDI_HybridShiftPathTracerContext>
+#endif
 #include "Rtxdi/PT/PathReconnectibility.hlsli"
 #include "Rtxdi/PT/Reservoir.hlsli"
 
@@ -28,7 +35,7 @@ struct RTXDI_PTHybridShiftRuntimeParameters
     float3 prevPrevCameraPos;
 };
 
-RTXDI_PathTracerContext<RTXDI_HybridShiftPathTracerContext> InitializePathTracerContext(const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
+RTXDI_HYBRID_CONTEXT InitializePathTracerContext(const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
                                                       const RTXDI_PTHybridShiftRuntimeParameters hsrParams,
                                                       const RTXDI_PTReconnectionParameters rcParams,
                                                       const RTXDI_PTReservoir neighborSample,
@@ -46,7 +53,7 @@ RTXDI_PathTracerContext<RTXDI_HybridShiftPathTracerContext> InitializePathTracer
     ptParams.rcrParams.prevCameraPos = hsrParams.prevCameraPos;
     ptParams.rcrParams.prevPrevCameraPos = hsrParams.prevPrevCameraPos;
 
-    RTXDI_PathTracerContext<RTXDI_HybridShiftPathTracerContext> ctx = RTXDI_InitializePathTracerContext<RTXDI_HybridShiftPathTracerContext>(ptParams, surfaceForResampling, ptRandContext);
+    RTXDI_HYBRID_CONTEXT ctx = RTXDI_HYBRID_CONTEXT_INIT(ptParams, surfaceForResampling, ptRandContext);
 
     return ctx;
 }
@@ -56,7 +63,7 @@ bool NeedToRunRandomReplayPathTracer(const RTXDI_PTReservoir neighborSample)
     return neighborSample.rcVertexLength > 2;
 }
 
-void RandomReplay(inout RTXDI_PathTracerContext<RTXDI_HybridShiftPathTracerContext> ctx,
+void RandomReplay(inout RTXDI_HYBRID_CONTEXT ctx,
                   const RTXDI_PTReservoir neighborSample,
                   inout RAB_Surface surfaceForResampling,
                   inout RTXDI_PathTracerRandomContext ptRandContext,
@@ -128,7 +135,7 @@ bool ShouldComputeReconnectionJacobian(const RTXDI_PTReservoir neighborSample,
     return neighborSample.rcVertexLength <= neighborSample.pathLength && !connectToRtxdiLight;
 }
 
-float ComputeReconnectionJacobian(const RTXDI_PathTracerContext<RTXDI_HybridShiftPathTracerContext> ctx,
+float ComputeReconnectionJacobian(const RTXDI_HYBRID_CONTEXT ctx,
                                   inout RTXDI_PTReservoir neighborSample,
                                   const RAB_Surface surfaceForResampling,
                                   inout float jacobian)
@@ -142,7 +149,7 @@ float ComputeReconnectionJacobian(const RTXDI_PathTracerContext<RTXDI_HybridShif
     return jacobian;
 }
 
-void ValidateInvertibilityCondition(const RTXDI_PathTracerContext<RTXDI_HybridShiftPathTracerContext> ctx,
+void ValidateInvertibilityCondition(const RTXDI_HYBRID_CONTEXT ctx,
                                     const RTXDI_PTReservoir neighborSample,
                                     const RAB_Surface surfaceForResampling,
                                     inout float jacobian)
@@ -287,7 +294,7 @@ float3 RTXDI_ComputeTargetFunctionWithLightPdf(const RTXDI_PTHybridShiftRuntimeP
 }
 
 void UpdateReconnectionForRTXDIConnectedLight(const RTXDI_PTHybridShiftRuntimeParameters hsrParams,
-                                              const RTXDI_PathTracerContext<RTXDI_HybridShiftPathTracerContext> ctx,
+                                              const RTXDI_HYBRID_CONTEXT ctx,
                                               const RAB_Surface surfaceForResampling,
                                               inout float jacobian,
                                               inout float3 targetFunction,
@@ -350,7 +357,7 @@ void RTXDI_ComputeHybridShift(inout RAB_Surface surfaceForResampling,
     RTXDI_PathTracerRandomContext ptrRandContext = (RTXDI_PathTracerRandomContext) 0;
     ptrRandContext.replayRandomSamplerState = RTXDI_CreateRandomSamplerFromDirectSeed(neighborSample.randomSeed, neighborSample.randomIndex);
 
-    RTXDI_PathTracerContext<RTXDI_HybridShiftPathTracerContext> ctx = InitializePathTracerContext(hspfParams, hsrParams, rcParams, neighborSample, surfaceForResampling, ptrRandContext);
+    RTXDI_HYBRID_CONTEXT ctx = InitializePathTracerContext(hspfParams, hsrParams, rcParams, neighborSample, surfaceForResampling, ptrRandContext);
 
     bool needToRunRandomReplayPathTracer = NeedToRunRandomReplayPathTracer(neighborSample);
 

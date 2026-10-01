@@ -13,6 +13,14 @@
 #ifndef RTXDI_BRDF_RAY_SAMPLE_HLSLI
 #define RTXDI_BRDF_RAY_SAMPLE_HLSLI
 
+// Slang requires explicit mutability on value-type methods. DXC accepts the
+// original HLSL method declarations when RTXDI_SLANG is not defined.
+#if defined(RTXDI_SLANG)
+#define RTXDI_MUTATING [mutating]
+#else
+#define RTXDI_MUTATING
+#endif
+
 #include "Rtxdi/Utils/Math.hlsli"
 
 #define RTXDI_BrdfRaySampleProperties_ContinuousDelta_Bit 0
@@ -23,7 +31,7 @@ struct RTXDI_BrdfRaySampleProperties
 {
     uint flags;
 
-    void SetContinuous()
+    RTXDI_MUTATING void SetContinuous()
     {
         SetBit(flags, RTXDI_BrdfRaySampleProperties_ContinuousDelta_Bit, 0);
     }
@@ -31,7 +39,7 @@ struct RTXDI_BrdfRaySampleProperties
     {
         return !GetBit(flags, RTXDI_BrdfRaySampleProperties_ContinuousDelta_Bit);
     }
-    void SetDelta()
+    RTXDI_MUTATING void SetDelta()
     {
         SetBit(flags, RTXDI_BrdfRaySampleProperties_ContinuousDelta_Bit, 1);
     }
@@ -40,7 +48,7 @@ struct RTXDI_BrdfRaySampleProperties
         return GetBit(flags, RTXDI_BrdfRaySampleProperties_ContinuousDelta_Bit);
     }
 
-    void SetDiffuse()
+    RTXDI_MUTATING void SetDiffuse()
     {
         SetBit(flags, RTXDI_BrdfRaySampleProperties_DiffuseSpecular_Bit, 0);
     }
@@ -48,7 +56,7 @@ struct RTXDI_BrdfRaySampleProperties
     {
         return !GetBit(flags, RTXDI_BrdfRaySampleProperties_DiffuseSpecular_Bit);
     }
-    void SetSpecular()
+    RTXDI_MUTATING void SetSpecular()
     {
         SetBit(flags, RTXDI_BrdfRaySampleProperties_DiffuseSpecular_Bit, 1);
     }
@@ -57,7 +65,7 @@ struct RTXDI_BrdfRaySampleProperties
         return GetBit(flags, RTXDI_BrdfRaySampleProperties_DiffuseSpecular_Bit);
     }
 
-    void SetReflection()
+    RTXDI_MUTATING void SetReflection()
     {
         SetBit(flags, RTXDI_BrdfRaySampleProperties_ReflectionTransmission_Bit, 0);
     }
@@ -65,7 +73,7 @@ struct RTXDI_BrdfRaySampleProperties
     {
         return !GetBit(flags, RTXDI_BrdfRaySampleProperties_ReflectionTransmission_Bit);
     }
-    void SetTransmission()
+    RTXDI_MUTATING void SetTransmission()
     {
         SetBit(flags, RTXDI_BrdfRaySampleProperties_ReflectionTransmission_Bit, 1);
     }

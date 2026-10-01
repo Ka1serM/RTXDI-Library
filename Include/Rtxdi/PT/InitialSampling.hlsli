@@ -15,7 +15,14 @@
 
 #include "Rtxdi/PT/InitialSamplingPathTracerContext.hlsli"
 #include "Rtxdi/PT/PathReconnectibility.hlsli"
+#if defined(RTXDI_SLANG)
+#define RTXDI_INITIAL_CONTEXT RTXDI_PathTracerContextInitial
+#define RTXDI_INITIAL_CONTEXT_INIT RTXDI_InitializePathTracerContextInitial
+#else
 #include "Rtxdi/PT/PathTracerContext.hlsli"
+#define RTXDI_INITIAL_CONTEXT RTXDI_PathTracerContext<RTXDI_InitialSamplingPathTracerContext>
+#define RTXDI_INITIAL_CONTEXT_INIT RTXDI_InitializePathTracerContext<RTXDI_InitialSamplingPathTracerContext>
+#endif
 #include "Rtxdi/PT/PathTracerRandomContext.hlsli"
 #include "Rtxdi/PT/Reservoir.hlsli"
 
@@ -31,7 +38,7 @@ RTXDI_PTInitialSamplingRuntimeParameters RTXDI_EmptyPTInitialSamplingRuntimePara
     return (RTXDI_PTInitialSamplingRuntimeParameters)0;
 }
 
-RTXDI_PTReservoir InitializePTReservoirFromPTContext(RTXDI_PathTracerContext<RTXDI_InitialSamplingPathTracerContext> ctx, RTXDI_RandomSamplerState cachedReplayRng)
+RTXDI_PTReservoir InitializePTReservoirFromPTContext(RTXDI_INITIAL_CONTEXT ctx, RTXDI_RandomSamplerState cachedReplayRng)
 {
     RTXDI_PTReservoir reservoir = RTXDI_MakePTReservoir(
             ctx.GetSelectedTargetFunction(), // target function (to be filled later)
@@ -93,7 +100,7 @@ RTXDI_PTReservoir GenerateInitialSamples(RTXDI_PTInitialSamplingParameters initi
         RTXDI_RandomSamplerState cachedRrRNG = ptRandContext.replayRandomSamplerState;
 
         RTXDI_PathTracerContextParameters ctxParams = GetPTContextParams(initialSamplingParams, isrParams, rcParams);
-        RTXDI_PathTracerContext<RTXDI_InitialSamplingPathTracerContext> ctx = RTXDI_InitializePathTracerContext<RTXDI_InitialSamplingPathTracerContext>(ctxParams, surface, ptRandContext);
+        RTXDI_INITIAL_CONTEXT ctx = RTXDI_INITIAL_CONTEXT_INIT(ctxParams, surface, ptRandContext);
 
         RAB_PathTrace(ctx, ptRandContext, ptud);
 		
