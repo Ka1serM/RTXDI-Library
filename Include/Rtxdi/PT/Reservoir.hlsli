@@ -17,9 +17,17 @@
 #define ENABLE_RESTIR_PT_PATH_REPLAY 0
 #endif
 
-#define TARGET_FUNCTION_TYPE float3
-
 #include "../Utils/Color.hlsli"
+
+#define TARGET_FUNCTION_TYPE RTXDI_COLOR
+
+#ifndef RTXDI_PT_BEGIN_SHIFT
+#define RTXDI_PT_BEGIN_SHIFT(reservoir)
+#endif
+
+#ifndef RTXDI_PT_FINISH_INITIAL_SAMPLE
+#define RTXDI_PT_FINISH_INITIAL_SAMPLE(reservoir)
+#endif
 #include "../Utils/RandomSamplerState.hlsli"
 #include "../Utils/ReservoirAddressing.hlsli"
 #include "../Utils/SampledLightData.hlsli"
@@ -56,7 +64,7 @@ struct RTXDI_PTReservoir
     float M;
 
     // Incoming radiance from the 2nd bounce surface.
-    float3 radiance;
+    RTXDI_COLOR radiance;
 
     // Number of frames the chosen sample has survived.
     // when used for age-based sample rejection, it does not reset to 0 when the sample is replaced by a neighbor's sample in spatial reuse
@@ -84,7 +92,12 @@ struct RTXDI_PTReservoir
 
     uint randomIndex;
 
-    float3 targetFunction;
+    RTXDI_COLOR targetFunction;
+
+#if RTXDI_COLOR_COMPONENTS == 4
+    // The uniform sample that chose the four wavelengths of radiance and targetFunction.
+    float wavelengthSample;
+#endif
 };
 
 RTXDI_PTReservoir RTXDI_EmptyPTReservoir()
@@ -162,6 +175,9 @@ bool RTXDI_InternalSimplePTResample(inout RTXDI_PTReservoir targetReservoir,
         targetReservoir.pathLength = newReservoir.pathLength;
         targetReservoir.partialJacobian = newReservoir.partialJacobian;
         targetReservoir.rcWiPdf = newReservoir.rcWiPdf;
+#if RTXDI_COLOR_COMPONENTS == 4
+        targetReservoir.wavelengthSample = newReservoir.wavelengthSample;
+#endif
     }
 
     return selectSample;
@@ -209,7 +225,7 @@ RTXDI_RandomSamplerState RTXDI_GetRngForShading(RTXDI_PTReservoir reservoir)
 
 // Creates a PT reservoir from a raw light sample.
 // Note: the original sample PDF can be embedded into sampleRadiance, in which case the samplePdf parameter should be set to 1.0.
-RTXDI_PTReservoir RTXDI_MakePTReservoir(const float3 targetFunction,
+RTXDI_PTReservoir RTXDI_MakePTReservoir(const RTXDI_COLOR targetFunction,
                                         const uint randomSeed,
                                         const uint randomIndex,
                                         const uint rcVertexLength,
@@ -219,7 +235,7 @@ RTXDI_PTReservoir RTXDI_MakePTReservoir(const float3 targetFunction,
 
                                         const float3 translatedWorldPosition,
                                         const float3 worldNormal,
-                                        const float3 radiance,
+                                        const RTXDI_COLOR radiance,
                                         const float samplePdf)
 {
     RTXDI_PTReservoir reservoir = (RTXDI_PTReservoir)0;
@@ -265,7 +281,7 @@ RTXDI_PackedPTReservoir RTXDI_PackPTReservoir(RTXDI_PTReservoir reservoir)
     RTXDI_PackedPTReservoir packedData = (RTXDI_PackedPTReservoir)0;
     packedData.Data0.xyz = asuint(reservoir.translatedWorldPosition);
     packedData.Data0.w = asuint(reservoir.weightSum);
-    packedData.Data2.xyz = asuint(reservoir.radiance);
+    packedData.Data2.xyz = asuint(reservoir.radiance.xyz);
     packedData.Data2.w = (reservoir.age & RTXDI_PTRESERVOIR_AGE_MAX);
     packedData.Data2.w |= reservoir.auxFlag ? 0x80 : 0x0;
 
@@ -274,8 +290,11 @@ RTXDI_PackedPTReservoir RTXDI_PackPTReservoir(RTXDI_PTReservoir reservoir)
     packedData.Data1.z = asuint(reservoir.partialJacobian);
     packedData.Data1.w = asuint(reservoir.rcWiPdf);
     packedData.Data2.w = (packedData.Data2.w & 0xff) | ((reservoir.rcVertexLength & 0xff) << 8) | ((reservoir.pathLength & 0xff) << 16) | ((reservoir.randomIndex & 0xff) << 24);
-    packedData.Data3.xyz = asuint(reservoir.targetFunction);
+    packedData.Data3.xyz = asuint(reservoir.targetFunction.xyz);
     packedData.Data3.w = reservoir.randomSeed;
+#if RTXDI_COLOR_COMPONENTS == 4
+    packedData.Data4 = uint4(asuint(reservoir.radiance.w), asuint(reservoir.targetFunction.w), asuint(reservoir.wavelengthSample), 0);
+#endif
 
     return packedData;
 }
@@ -287,13 +306,22 @@ RTXDI_PTReservoir RTXDI_UnpackPTReservoir(in const RTXDI_PackedPTReservoir packe
 
     unpacked.translatedWorldPosition = asfloat(packedData.Data0.xyz);
     unpacked.weightSum = asfloat(packedData.Data0.w);
+#if RTXDI_COLOR_COMPONENTS == 4
+    unpacked.radiance = float4(asfloat(packedData.Data2.xyz), asfloat(packedData.Data4.x));
+#else
     unpacked.radiance = asfloat(packedData.Data2.xyz);
+#endif
     unpacked.age = packedData.Data2.w & RTXDI_PTRESERVOIR_AGE_MAX;
 
     unpacked.worldNormal = normalize(DecodeSnorm3x16(packedData.Data1.xy));
     unpacked.M = f16tof32(packedData.Data1.y >> 16);
     unpacked.auxFlag = ((packedData.Data2.w & 0x80) != 0x0);
+#if RTXDI_COLOR_COMPONENTS == 4
+    unpacked.targetFunction = float4(asfloat(packedData.Data3.xyz), asfloat(packedData.Data4.y));
+    unpacked.wavelengthSample = asfloat(packedData.Data4.z);
+#else
     unpacked.targetFunction = asfloat(packedData.Data3.xyz);
+#endif
     unpacked.rcWiPdf = asfloat(packedData.Data1.w);
     unpacked.partialJacobian = asfloat(packedData.Data1.z);
     unpacked.rcVertexLength = (packedData.Data2.w >> 8) & 0xff;

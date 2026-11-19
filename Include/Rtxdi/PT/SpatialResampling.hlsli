@@ -131,7 +131,7 @@ void SpatialRetrace(const RTXDI_PTSpatialResamplingRuntimeParameters srrParams,
                     RTXDI_PTReservoir prevSampleCopy,
                     inout RAB_PathTracerUserData ptud)
 {
-    float3 targetFunction = float3(0.0f, 0.0f, 0.0f);
+    RTXDI_COLOR targetFunction = (RTXDI_COLOR)0.0f;
     float jacobian = 0;
     prevSampleCopy.pathLength = max(prevSampleCopy.pathLength, hspfParams.maxBounceDepth);
     prevSampleCopy.rcVertexLength = prevSampleCopy.pathLength + 1;
@@ -148,7 +148,7 @@ bool ShouldEvaluateSpatialReconnection(RTXDI_PTReservoir neighborReservoir)
     return !(((neighborReservoir.rcVertexLength == neighborReservoir.pathLength) && RTXDI_ConnectsToNeeLight(neighborReservoir)) || (neighborReservoir.rcVertexLength > neighborReservoir.pathLength));
 }
 
-void EvaluateReconnection(RTXDI_PTHybridShiftPerFrameParameters hspfParams, inout float3 targetFunction, RAB_Surface surface, RTXDI_PTReservoir neighborReservoir)
+void EvaluateReconnection(RTXDI_PTHybridShiftPerFrameParameters hspfParams, inout RTXDI_COLOR targetFunction, RAB_Surface surface, RTXDI_PTReservoir neighborReservoir)
 {
     targetFunction *= RAB_GetPTSampleTargetPdfForSurface(neighborReservoir.translatedWorldPosition, neighborReservoir.radiance, surface);
 
@@ -160,6 +160,8 @@ void EvaluateReconnection(RTXDI_PTHybridShiftPerFrameParameters hspfParams, inou
     }
 }
 
+// Pass 0 shifts each neighbor's sample here, pass 1 shifts the selected sample back to each neighbor for bias correction.
+// Both passes run in one loop so drivers compile the hybrid shift only once.
 bool ResampleNeighbors(const RTXDI_PTSpatialResamplingRuntimeParameters srrParams,
                        const RTXDI_PTSpatialResamplingParameters spatialParams,
                        const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
@@ -168,23 +170,40 @@ bool ResampleNeighbors(const RTXDI_PTSpatialResamplingRuntimeParameters srrParam
                        const RTXDI_PTBufferIndices bufferIndices,
                        RTXDI_RuntimeParameters rParams,
                        const uint startIdx,
-                       inout uint selectedIndex,
                        inout RTXDI_RandomSamplerState rng,
                        const RAB_Surface surface,
+                       const RTXDI_PTReservoir curSample,
                        inout RTXDI_PTReservoir targetReservoir,
-                       inout float3 selectedTargetFunction,
+                       inout RTXDI_COLOR selectedTargetFunction,
                        const uint numSamples,
-                       inout uint cachedResult,
-                       inout RAB_PathTracerUserData ptud
-)
+                       inout float pi,
+                       inout float piSum,
+                       inout RAB_PathTracerUserData ptud)
 {
     bool resampled = false;
-    for (uint i = 0; i < numSamples; ++i)
-    {
-        uint2 neighborSurfacePos = CalculateNeighborSurfacePixelPosition(spatialParams, rParams, srrParams.pixelPosition, i, startIdx, srrParams.viewportSize);
-        RAB_Surface neighborSurface = RAB_GetGBufferSurface(neighborSurfacePos, false);
+    uint selectedIndex = numSamples + 1;
+    uint cachedResult = 0;
+    pi = RTXDI_Luminance(selectedTargetFunction);
+    piSum = pi * curSample.M;
 
-        if (!IsValidNeighborSurface(spatialParams, surface, neighborSurface))
+    [loop]
+    for (uint step = 0; step < 2 * numSamples; ++step)
+    {
+        const bool inverse = step >= numSamples;
+        const uint i = inverse ? step - numSamples : step;
+        if (step == numSamples)
+        {
+            pi = RTXDI_Luminance(selectedTargetFunction);
+            piSum = pi * curSample.M;
+        }
+
+        uint2 neighborSurfacePos = CalculateNeighborSurfacePixelPosition(spatialParams, rParams, srrParams.pixelPosition, i, startIdx, srrParams.viewportSize);
+        if (inverse ? (cachedResult & (1u << i)) == 0 : false)
+        {
+            continue; // If we skipped this neighbor above, do so again.
+        }
+        RAB_Surface neighborSurface = RAB_GetGBufferSurface(neighborSurfacePos, false);
+        if (!inverse && !IsValidNeighborSurface(spatialParams, surface, neighborSurface))
         {
             continue;
         }
@@ -193,31 +212,54 @@ bool ResampleNeighbors(const RTXDI_PTSpatialResamplingRuntimeParameters srrParam
         RTXDI_PTReservoir neighborReservoir = RTXDI_LoadPTReservoir(reservoirBufferParams, neighborReservoirPos, bufferIndices.spatialResamplingInputBufferIndex);
 
 #if RTXDI_DEBUG == 1
-        SpatialRetrace(srrParams, hspfParams, rcParams, neighborSurface, neighborReservoir, ptud);
+        if (!inverse)
+        {
+            SpatialRetrace(srrParams, hspfParams, rcParams, neighborSurface, neighborReservoir, ptud);
+        }
 #endif
 
-        float jacobian = RTXDI_CalculateJacobian(RAB_GetSurfaceWorldPos(surface), RAB_GetSurfaceWorldPos(neighborSurface), neighborReservoir.translatedWorldPosition, neighborReservoir.worldNormal);
-        float3 targetFunction = float3(1.0f, 1.0f, 1.0f);
-
-        RAB_Surface surfaceForResampling = surface;
+        RAB_Surface shiftSurface = inverse ? neighborSurface : surface;
+        RTXDI_PTReservoir shiftSample = inverse ? targetReservoir : neighborReservoir;
+        RTXDI_COLOR targetFunction = (RTXDI_COLOR)1.0f;
+        float jacobian = 1.f;
 
         // The random replay (prefix tracing) pass taken by hybrid shift
-        // this will update Surface to the vertex before reconnection
+        // this will update shiftSurface to the vertex before reconnection
         // If the reconnection vertex is a NEE-sampled light vertex (UseRTXDILight), it will be handled inside this function
-        bool shouldEvaluateReconnection = ShouldEvaluateSpatialReconnection(neighborReservoir);
-        RAB_PathTracerUserDataSetPathType(ptud, RTXDI_PTPathTraceInvocationType_Spatial);
-        RTXDI_ComputeHybridShift(surfaceForResampling, neighborReservoir, hspfParams, BuildHSParams(srrParams), rcParams, targetFunction, jacobian, ptud);
+        float backupPartialJacobian = shiftSample.partialJacobian; // for MIS weight computation, the inverse shift must not overwrite the target reservoir's value
+        bool shouldEvaluateReconnection = ShouldEvaluateSpatialReconnection(shiftSample);
+        RAB_PathTracerUserDataSetPathType(ptud, inverse ? RTXDI_PTPathTraceInvocationType_SpatialInverse : RTXDI_PTPathTraceInvocationType_Spatial);
+        RTXDI_ComputeHybridShift(shiftSurface, shiftSample, hspfParams, BuildHSParams(srrParams), rcParams, targetFunction, jacobian, ptud);
+
+        if (inverse)
+        {
+            shiftSample.partialJacobian = backupPartialJacobian;
+            targetReservoir = shiftSample;
+        }
 
         if (shouldEvaluateReconnection)
         {
-            EvaluateReconnection(hspfParams, targetFunction, surfaceForResampling, neighborReservoir);
+            EvaluateReconnection(hspfParams, targetFunction, shiftSurface, shiftSample);
         }
 
-        neighborReservoir.weightSum *= jacobian;
+        if (inverse)
+        {
+            float Ps = RTXDI_Luminance(targetFunction) * jacobian;
 
-        cachedResult |= (1u << uint(i));
+            // Select this sample for the (normalization) numerator if this particular neighbor pixel
+            // was the one we selected via RIS in the first pass, above.
+            pi = (selectedIndex == i) ? Ps : pi;
 
-        if (RTXDI_CombinePTReservoirs(targetReservoir, neighborReservoir, RTXDI_GetNextRandom(rng), targetFunction))
+            // Add to the sums of weights for the (normalization) denominator
+            piSum += Ps * neighborReservoir.M;
+            continue;
+        }
+
+        shiftSample.weightSum *= jacobian;
+
+        cachedResult |= (1u << i);
+
+        if (RTXDI_CombinePTReservoirs(targetReservoir, shiftSample, RTXDI_GetNextRandom(rng), targetFunction))
         {
             selectedTargetFunction = targetFunction;
             selectedIndex = i;
@@ -227,65 +269,7 @@ bool ResampleNeighbors(const RTXDI_PTSpatialResamplingRuntimeParameters srrParam
     return resampled;
 }
 
-void BiasCorrection(const RTXDI_PTSpatialResamplingRuntimeParameters srrParams,
-                    const RTXDI_PTSpatialResamplingParameters spatialParams,
-                    const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
-                    const RTXDI_PTReconnectionParameters rcParams,
-                    const RTXDI_ReservoirBufferParameters reservoirBufferParams,
-                    const RTXDI_PTBufferIndices bufferIndices,
-                    RTXDI_RuntimeParameters rParams,
-                    const uint startIdx,
-                    const uint selectedIndex,
-                    const RAB_Surface surface,
-                    inout RTXDI_PTReservoir targetReservoir,
-                    const uint numSamples,
-                    const uint cachedResult,
-                    inout float pi,
-                    inout float piSum,
-                    inout RAB_PathTracerUserData ptud)
-{
-    for (uint i = 0; i < numSamples; ++i)
-    {
-        // If we skipped this neighbor above, do so again.
-        if ((cachedResult & (1u << uint(i))) == 0)
-            continue;
-
-        uint2 neighborSurfacePos = CalculateNeighborSurfacePixelPosition(spatialParams, rParams, srrParams.pixelPosition, i, startIdx, srrParams.viewportSize);
-        RAB_Surface neighborSurface = RAB_GetGBufferSurface(neighborSurfacePos, false);
-
-        uint2 neighborReservoirPos = RTXDI_PixelPosToReservoirPos(neighborSurfacePos, rParams.activeCheckerboardField);
-        RTXDI_PTReservoir neighborReservoir = RTXDI_LoadPTReservoir(reservoirBufferParams, neighborReservoirPos, bufferIndices.spatialResamplingInputBufferIndex);
-
-        float3 targetFunction = float3(1.0f, 1.0f, 1.0f);
-
-        float jacobian = RTXDI_CalculateJacobian(RAB_GetSurfaceWorldPos(neighborSurface), RAB_GetSurfaceWorldPos(surface), targetReservoir.translatedWorldPosition, targetReservoir.worldNormal);
-
-        // The random replay (prefix tracing) pass taken by hybrid shift
-        // this will update Surface to the vertex before reconnection
-        // If the reconnection vertex is a NEE-sampled light vertex (UseRTXDILight), it will be handled inside this function
-        float BackupPartialJacobian = targetReservoir.partialJacobian; // for MIS weight computation, we don't want Reservoir value to be eventually overwritten
-        bool shouldEvaluateReconnection = ShouldEvaluateSpatialReconnection(targetReservoir);
-        RAB_PathTracerUserDataSetPathType(ptud, RTXDI_PTPathTraceInvocationType_SpatialInverse);
-        RTXDI_ComputeHybridShift(neighborSurface, targetReservoir, hspfParams, BuildHSParams(srrParams), rcParams, targetFunction, jacobian, ptud);
-        targetReservoir.partialJacobian = BackupPartialJacobian;
-
-        if (shouldEvaluateReconnection)
-        {
-            EvaluateReconnection(hspfParams, targetFunction, neighborSurface, targetReservoir);
-        }
-
-        float Ps = RTXDI_Luminance(targetFunction) * jacobian;
-
-        // Select this sample for the (normalization) numerator if this particular neighbor pixel
-        // was the one we selected via RIS in the first loop, above.
-        pi = (selectedIndex == i) ? Ps : pi;
-
-        // Add to the sums of weights for the (normalization) denominator
-        piSum += Ps * neighborReservoir.M;
-    }
-}
-
-void FinalizeResampling(inout RTXDI_PTReservoir targetReservoir, float3 selectedTargetFunction, float pi, float piSum)
+void FinalizeResampling(inout RTXDI_PTReservoir targetReservoir, RTXDI_COLOR selectedTargetFunction, float pi, float piSum)
 {
     // "MIS-like" normalization
     // {wSum * (pi/piSum)} * 1/selectedTargetPdf
@@ -313,7 +297,7 @@ RTXDI_PTReservoir RTXDI_PTSpatialResampling(RTXDI_PTSpatialResamplingRuntimePara
 
     RTXDI_PTReservoir targetReservoir = RTXDI_EmptyPTReservoir();
     RTXDI_PTReservoir curSample = RTXDI_LoadPTReservoir(reservoirBufferParams, srrParams.reservoirPosition, bufferIndices.spatialResamplingInputBufferIndex);
-    float3 selectedTargetFunction = float3(0.0f, 0.0f, 0.0f);
+    RTXDI_COLOR selectedTargetFunction = (RTXDI_COLOR)0.0f;
 
     if (RTXDI_IsValidPTReservoir(curSample))
     {
@@ -326,15 +310,10 @@ RTXDI_PTReservoir RTXDI_PTSpatialResampling(RTXDI_PTSpatialResamplingRuntimePara
     int numSamples = CalculateNumSamples(spatialParams, targetReservoir, curSample);
 
     const uint startIdx = RTXDI_GetNextRandom(rng) * rParams.neighborOffsetMask;
-    uint selectedIndex = numSamples + 1;
-    uint cachedResult = 0;
 
-    resampled = ResampleNeighbors(srrParams, spatialParams, hspfParams, rcParams, reservoirBufferParams, bufferIndices, rParams, startIdx, selectedIndex, rng, surface, targetReservoir, selectedTargetFunction, numSamples, cachedResult, ptud);
-
-    float pi = RTXDI_Luminance(selectedTargetFunction);
-    float piSum = RTXDI_Luminance(selectedTargetFunction) * curSample.M;
-
-    BiasCorrection(srrParams, spatialParams, hspfParams, rcParams, reservoirBufferParams, bufferIndices, rParams, startIdx, selectedIndex, surface, targetReservoir, numSamples, cachedResult, pi, piSum, ptud);
+    float pi;
+    float piSum;
+    resampled = ResampleNeighbors(srrParams, spatialParams, hspfParams, rcParams, reservoirBufferParams, bufferIndices, rParams, startIdx, rng, surface, curSample, targetReservoir, selectedTargetFunction, numSamples, pi, piSum, ptud);
 
     FinalizeResampling(targetReservoir, selectedTargetFunction, pi, piSum);
 

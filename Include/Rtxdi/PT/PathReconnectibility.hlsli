@@ -59,8 +59,8 @@ float RTXDI_CalculateRayFootprint(const float3 surfNormal,
                                   const float rayDist, // committedRayT
                                   const RTXDI_BrdfRaySample brs) // const float pdf)
 {
-    if(brs.properties.IsDelta())
-        return 0.0;    
+    if(brs.properties.IsDelta() || brs.properties.IsNotReconnectible())
+        return 0.0;
     const float pdf = brs.outPdf;
     const float geometryFactor = abs(dot(surfNormal, surfViewDir)) / (rayDist * rayDist);
     const float rayFootprint = 1.f / (geometryFactor * pdf);

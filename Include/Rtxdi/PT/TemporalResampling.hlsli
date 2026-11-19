@@ -232,7 +232,7 @@ bool ShouldEvaluateTemporalReconnection(RTXDI_PTReservoir prevSample)
 }
 
 void EvaluateReconnection(const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
-                          inout float3 targetFunction,
+                          inout RTXDI_COLOR targetFunction,
                           const RAB_Surface curSurface,
                           const RTXDI_PTReservoir prevSample,
                           const bool checkVisibility)
@@ -275,7 +275,7 @@ void TemporalRetrace(const RTXDI_PTTemporalResamplingRuntimeParameters trrParams
                      RTXDI_PTReservoir prevSampleCopy,
                      inout RAB_PathTracerUserData ptud)
 {
-    float3 targetFunction = float3(0.0f, 0.0f, 0.0f);
+    RTXDI_COLOR targetFunction = (RTXDI_COLOR)0.0f;
     float jacobian = 0;
     prevSampleCopy.pathLength = max(prevSampleCopy.pathLength, hspfParams.maxBounceDepth);
     prevSampleCopy.rcVertexLength = prevSampleCopy.pathLength + 1;
@@ -287,76 +287,42 @@ void TemporalRetrace(const RTXDI_PTTemporalResamplingRuntimeParameters trrParams
 }
 #endif
 
-// Shift previous sample - random replay to new location
-void ResampleTemporalNeighbor(const RTXDI_PTTemporalResamplingParameters tParams,
-                              const RTXDI_PTTemporalResamplingRuntimeParameters trrParams,
-                              const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
-                              const RTXDI_PTReconnectionParameters rcParams,
-                              inout RTXDI_RandomSamplerState rng,
-                              inout RTXDI_PTReservoir targetReservoir,
-                              inout RAB_Surface curSurface,
-                              inout RTXDI_PTReservoir prevSample,
-                              inout float jacobian,
-                              inout float3 selectedTargetFunction,
-                              inout bool selectedPrevSample,
-                              inout RAB_PathTracerUserData ptud)
+// Shifts the previous sample to the current surface (forward), or the selected sample back to the previous surface (inverse, for bias correction).
+// Both directions share this call site so the hybrid shift is instantiated once per kernel.
+void ShiftTemporalSample(const RTXDI_PTTemporalResamplingParameters tParams,
+                         const RTXDI_PTTemporalResamplingRuntimeParameters trrParams,
+                         const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
+                         const RTXDI_PTReconnectionParameters rcParams,
+                         const bool inverse,
+                         inout RAB_Surface surface,
+                         inout RTXDI_PTReservoir sample,
+                         out RTXDI_COLOR targetFunction,
+                         out float jacobian,
+                         inout RAB_PathTracerUserData ptud)
 {
-    float3 targetFunction = float3(1.0f, 1.0f, 1.0f);
-    bool shouldEvaluateReconnection = ShouldEvaluateTemporalReconnection(prevSample);
+    bool shouldEvaluateReconnection = ShouldEvaluateTemporalReconnection(sample);
+    float backupPartialJacobian = sample.partialJacobian; // the inverse shift must not overwrite the target reservoir's value used for MIS
 
     // The random replay (prefix tracing) pass taken by hybrid shift
-    // this will update curSurface to the vertex before reconnection
+    // this will update surface to the vertex before reconnection
     // If the reconnection vertex is a NEE-sampled light vertex (UseRTXDILight), it will be handled inside this function
-    RAB_PathTracerUserDataSetPathType(ptud, RTXDI_PTPathTraceInvocationType_Temporal);
-    RTXDI_ComputeHybridShift(curSurface, prevSample, hspfParams, BuildHSRShiftParams(trrParams), rcParams, targetFunction, jacobian, ptud);
+    RAB_PathTracerUserDataSetPathType(ptud, inverse ? RTXDI_PTPathTraceInvocationType_TemporalInverse : RTXDI_PTPathTraceInvocationType_Temporal);
+    RTXDI_PTHybridShiftRuntimeParameters hsrParams = inverse ? BuildHSRInverseShiftParams(trrParams) : BuildHSRShiftParams(trrParams);
+    RTXDI_ComputeHybridShift(surface, sample, hspfParams, hsrParams, rcParams, targetFunction, jacobian, ptud);
 
-    prevSample.weightSum *= jacobian;
+    if (inverse)
+    {
+        sample.partialJacobian = backupPartialJacobian;
+    }
+    else
+    {
+        sample.weightSum *= jacobian;
+    }
 
     if (shouldEvaluateReconnection)
     {
-        EvaluateReconnection(hspfParams, targetFunction, curSurface, prevSample, tParams.enableVisibilityBeforeCombine);
+        EvaluateReconnection(hspfParams, targetFunction, surface, sample, inverse || tParams.enableVisibilityBeforeCombine);
     }
-
-    if (RTXDI_CombinePTReservoirs(targetReservoir, prevSample, RTXDI_GetNextRandom(rng), targetFunction))
-    {
-        selectedPrevSample = true;
-        selectedTargetFunction = targetFunction;
-    }
-}
-
-void BiasCorrection(const RTXDI_PTTemporalResamplingRuntimeParameters trrParams,
-                    const RTXDI_PTHybridShiftPerFrameParameters hspfParams,
-                    const RTXDI_PTReconnectionParameters rcParams,
-                    inout RTXDI_RandomSamplerState rng,
-                    inout RTXDI_PTReservoir targetReservoir,
-                    inout RAB_Surface curSurface,
-                    inout RAB_Surface prevSurface,
-                    inout RTXDI_PTReservoir prevSample,
-                    const bool selectedPrevSample,
-                    inout float pi,
-                    inout float piSum,
-                    inout RAB_PathTracerUserData ptud)
-{
-    float3 targetFunction = float3(1.0f, 1.0f, 1.0f);
-    bool shouldEvaluateReconnection = ShouldEvaluateTemporalReconnection(targetReservoir);
-
-    float jacobian = RTXDI_CalculateJacobian(RAB_GetSurfaceWorldPos(prevSurface), RAB_GetSurfaceWorldPos(curSurface), targetReservoir.translatedWorldPosition, targetReservoir.worldNormal);
-    float backupPartialJacobian = targetReservoir.partialJacobian; // for MIS weight computation, we don't want targetReservoir value to be eventually overwritten
-
-    RAB_PathTracerUserDataSetPathType(ptud, RTXDI_PTPathTraceInvocationType_TemporalInverse);
-    RTXDI_ComputeHybridShift(prevSurface, targetReservoir, hspfParams, BuildHSRInverseShiftParams(trrParams), rcParams, targetFunction, jacobian, ptud);
-
-    targetReservoir.partialJacobian = backupPartialJacobian;
-
-    if (shouldEvaluateReconnection)
-    {
-        EvaluateReconnection(hspfParams, targetFunction, prevSurface, targetReservoir, true);
-    }
-
-    float temporalP = RTXDI_Luminance(targetFunction) * jacobian;
-
-    pi = selectedPrevSample ? temporalP : pi;
-    piSum += temporalP * prevSample.M;
 }
 
 RTXDI_PTReservoir RTXDI_PTTemporalResampling(RTXDI_PTTemporalResamplingParameters tParams,
@@ -378,7 +344,7 @@ RTXDI_PTReservoir RTXDI_PTTemporalResampling(RTXDI_PTTemporalResamplingParameter
 
     RTXDI_PTReservoir targetReservoir = RTXDI_EmptyPTReservoir();
     RTXDI_PTReservoir curSample = RTXDI_LoadPTReservoir(bufferParams, trrParams.reservoirPosition, bufferIndices.initialPathTracerOutputBufferIndex);
-    float3 selectedTargetFunction = float3(0.0f, 0.0f, 0.0f);
+    RTXDI_COLOR selectedTargetFunction = (RTXDI_COLOR)0.0f;
 
     if (RTXDI_IsValidPTReservoir(curSample))
     {
@@ -421,16 +387,49 @@ RTXDI_PTReservoir RTXDI_PTTemporalResampling(RTXDI_PTTemporalResamplingParameter
     }
 
     selectedPrevSample = false;
-    if (foundNeighbor)
+    float pi = 0.f;
+    float piSum = 0.f;
+    // Pass 0 shifts the previous sample here, pass 1 shifts the selected sample back for bias correction.
+    // A loop rather than two calls, so drivers compile the hybrid shift only once.
+    const uint passCount = foundNeighbor ? 2u : 0u;
+    [loop]
+    for (uint pass = 0; pass < passCount; ++pass)
     {
-        ResampleTemporalNeighbor(tParams, trrParams, hspfParams, rcParams, rng, targetReservoir, curSurface, prevSample, jacobian, selectedTargetFunction, selectedPrevSample, ptud);
-    }
+        const bool inverse = pass != 0;
+        if (inverse && !RTXDI_IsValidPTReservoir(targetReservoir))
+        {
+            break;
+        }
 
-    float pi = RTXDI_Luminance(selectedTargetFunction);
-    float piSum = RTXDI_Luminance(selectedTargetFunction) * curSample.M;
-    if (RTXDI_IsValidPTReservoir(targetReservoir) && foundNeighbor)
+        RAB_Surface surface = inverse ? prevSurface : curSurface;
+        RTXDI_PTReservoir sample = inverse ? targetReservoir : prevSample;
+        RTXDI_COLOR targetFunction;
+        ShiftTemporalSample(tParams, trrParams, hspfParams, rcParams, inverse, surface, sample, targetFunction, jacobian, ptud);
+
+        if (inverse)
+        {
+            targetReservoir = sample;
+            float temporalP = RTXDI_Luminance(targetFunction) * jacobian;
+            pi = selectedPrevSample ? temporalP : pi;
+            piSum += temporalP * prevSample.M;
+        }
+        else
+        {
+            curSurface = surface;
+            prevSample = sample;
+            if (RTXDI_CombinePTReservoirs(targetReservoir, prevSample, RTXDI_GetNextRandom(rng), targetFunction))
+            {
+                selectedPrevSample = true;
+                selectedTargetFunction = targetFunction;
+            }
+            pi = RTXDI_Luminance(selectedTargetFunction);
+            piSum = RTXDI_Luminance(selectedTargetFunction) * curSample.M;
+        }
+    }
+    if (!foundNeighbor)
     {
-        BiasCorrection(trrParams, hspfParams, rcParams, rng, targetReservoir, curSurface, prevSurface, prevSample, selectedPrevSample, pi, piSum, ptud);
+        pi = RTXDI_Luminance(selectedTargetFunction);
+        piSum = RTXDI_Luminance(selectedTargetFunction) * curSample.M;
     }
 
     const float normalizationNumerator = pi;

@@ -47,7 +47,7 @@ struct RTXDI_InitialSamplingPathTracerContext
         russianRoulettePdf *= rrProb;
     }
     
-    RTXDI_MUTATING void MultiplyPathThroughput(float3 multiplicationFactor)
+    RTXDI_MUTATING void MultiplyPathThroughput(RTXDI_COLOR multiplicationFactor)
     {
         ptState.pathThroughput *= multiplicationFactor;
     }
@@ -158,7 +158,7 @@ struct RTXDI_InitialSamplingPathTracerContext
         return true;
     }
 
-    RTXDI_MUTATING bool RecordEmissiveLightSample(float3 radianceFromEmissiveSurface, RAB_Surface prevSurface, inout RTXDI_RandomSamplerState rng)
+    RTXDI_MUTATING bool RecordEmissiveLightSample(RTXDI_COLOR radianceFromEmissiveSurface, RAB_Surface prevSurface, inout RTXDI_RandomSamplerState rng)
     {
         const uint candidateRcVertexLength = (ptState.NoMainPathRcVertex() && ptState.IsLastVertexFar()) ? ptState.bounceDepth : ptState.rcVertexLength;
 
@@ -171,7 +171,7 @@ struct RTXDI_InitialSamplingPathTracerContext
         
         
         // RIS stream the current path sample, which is only the emissive portion of the intersection surface.
-        float3 Le = radianceFromEmissiveSurface;
+        RTXDI_COLOR Le = radianceFromEmissiveSurface;
 
         bool accepted = RISStreamPathSample(ptState.bounceDepth, Le, rng, candidateRcVertexLength, false, 1.f, ptState.brdfRaySample.outDirection, partialJacobianToLight);
         return accepted;
@@ -183,7 +183,7 @@ struct RTXDI_InitialSamplingPathTracerContext
     }
 
     RTXDI_MUTATING bool RecordNeeLightSample(in const RTXDI_SampledLightData sampledLightData,
-                              in const float3 radianceFromLights,
+                              in const RTXDI_COLOR radianceFromLights,
                               in const float neePdf,
                               in const float scatterPdf,
                               in const RAB_LightSample lightSample,
@@ -238,7 +238,7 @@ struct RTXDI_InitialSamplingPathTracerContext
                 pathPartialJacobian = RTXDI_CalculatePartialJacobian(RAB_RayPayloadGetCommittedHitT(ptState.traceResult), ptState.continuationRay.Direction, RAB_GetSurfaceNormal(ptState.intersectionSurface));
             }
             
-            float3 Le = radianceFromLights;
+            RTXDI_COLOR Le = radianceFromLights;
 
             // if the rcVertex is the light vertex, we packed lightData to store in the "radiance" member in the reservoir (x is indicated by INF)
             // (we can re-evaluate the radiance by using RTXDI functions)
@@ -263,14 +263,14 @@ struct RTXDI_InitialSamplingPathTracerContext
         ptState.SetPathTermination(true);
     }
 
-    RTXDI_MUTATING bool RecordEnvironmentMapLightSample(const float3 environmentMapRadiance,
+    RTXDI_MUTATING bool RecordEnvironmentMapLightSample(const RTXDI_COLOR environmentMapRadiance,
                                          RAB_Surface prevSurface,
                                          inout RTXDI_RandomSamplerState rng)
     {
         const float FakeDistanceHitT = RAB_DISTANT_LIGHT_DISTANCE;
         const float3 FakeWorldPosition = RAB_GetSurfaceWorldPos(ptState.intersectionSurface) + FakeDistanceHitT * ptState.continuationRay.Direction;
 
-        float3 Le = environmentMapRadiance;
+        RTXDI_COLOR Le = environmentMapRadiance;
 
         const uint envRcVertexLength = (ptState.NoMainPathRcVertex() && ptState.IsLastVertexRough()) ? ptState.bounceDepth : ptState.rcVertexLength;
 
@@ -292,7 +292,7 @@ struct RTXDI_InitialSamplingPathTracerContext
         ptState.initialBounceDepth = 2;
         ptState.bounceDepth = ptState.initialBounceDepth;
         ptState.maxPathBounce = (uint16_t)ptParams.maxBounces;
-        ptState.pathThroughput = float3(1.0f, 1.0f, 1.0f);
+        ptState.pathThroughput = (RTXDI_COLOR)1.0f;
         ptState.intersectionSurface = primarySurface;
 
         runningWeightSum = 0.f;
@@ -303,7 +303,7 @@ struct RTXDI_InitialSamplingPathTracerContext
         selectedRcSurface = RAB_EmptySurface();
 
         // "suffix" throughput to compute the radiance coming out of the reconnection vertex
-        ptState.rcPathThroughput = float3(1.f, 1.f, 1.f);
+        ptState.rcPathThroughput = (RTXDI_COLOR)1.0f;
 
         // the reconnection vertex length. Initially we set it to maximum, as we find the proper vertex we reduce the length
         ptState.rcVertexLength = ptParams.maxRcVertexLength;
@@ -316,7 +316,7 @@ struct RTXDI_InitialSamplingPathTracerContext
         roughnessThreshold = ptParams.rcParams.roughnessThreshold;
     }
 
-    float CalculateRISWeight(float3 targetFunctionOverP)
+    float CalculateRISWeight(RTXDI_COLOR targetFunctionOverP)
     {
         float risWeight = RTXDI_Luminance(targetFunctionOverP);
         risWeight = (isnan(risWeight) || isinf(risWeight)) ? 0.f : risWeight;
@@ -324,7 +324,7 @@ struct RTXDI_InitialSamplingPathTracerContext
     }
 
     RTXDI_MUTATING bool RISStreamPathSample(uint pathLength,
-                             float3 currentLightRadiance,
+                             RTXDI_COLOR currentLightRadiance,
                              inout RTXDI_RandomSamplerState rng,
                              uint rcVertexLength,
                              bool isNee,
@@ -332,7 +332,7 @@ struct RTXDI_InitialSamplingPathTracerContext
                              float3 packedLightData,
                              float partialJacobian)
     {
-        const float3 targetFunctionOverP = currentLightRadiance * ptState.pathThroughput;
+        const RTXDI_COLOR targetFunctionOverP = currentLightRadiance * ptState.pathThroughput;
 
         float risWeight = RTXDI_Luminance(targetFunctionOverP);
 
@@ -372,7 +372,7 @@ struct RTXDI_InitialSamplingPathTracerContext
 
             selectedPartialJacobian = partialJacobian == 0.f ? mainPathPartialJacobian : partialJacobian;
 
-            radiance = isinf(packedLightData.x) ? packedLightData : radiance; // store RTXDI sampleRef
+            radiance = isinf(packedLightData.x) ? RTXDI_ColorFromFloat3(packedLightData) : radiance; // store RTXDI sampleRef
 
             return true;
         }
@@ -387,7 +387,7 @@ struct RTXDI_InitialSamplingPathTracerContext
         return ptState.IsPathTermination();
     }
 
-    float3 GetSelectedTargetFunction()
+    RTXDI_COLOR GetSelectedTargetFunction()
     {
         return selectedTargetFunction;
     }
@@ -447,7 +447,7 @@ struct RTXDI_InitialSamplingPathTracerContext
 
     }
 
-    float3 GetRadiance()
+    RTXDI_COLOR GetRadiance()
     {
         return radiance;
     }
@@ -483,12 +483,12 @@ struct RTXDI_InitialSamplingPathTracerContext
     }
 
 
-    RTXDI_MUTATING void SetContinuationRayBrdfOverPdf(float3 brdfOverPdf)
+    RTXDI_MUTATING void SetContinuationRayBrdfOverPdf(RTXDI_COLOR brdfOverPdf)
     {
         ptState.continuationRayBrdfOverPdf = brdfOverPdf;
     }
 
-    float3 GetContinuationRayBrdfOverPdf()
+    RTXDI_COLOR GetContinuationRayBrdfOverPdf()
     {
         return ptState.continuationRayBrdfOverPdf;
     }
@@ -498,7 +498,7 @@ struct RTXDI_InitialSamplingPathTracerContext
         return ptState.continuationRay;
     }
 
-    float3 GetPathThroughput()
+    RTXDI_COLOR GetPathThroughput()
     {
         return ptState.pathThroughput;
     }
@@ -585,7 +585,7 @@ struct RTXDI_InitialSamplingPathTracerContext
 
     // Total radiance carried from the path tree to the primary intersection divided by 
     // the pdfs of producing the path tree
-    float3              radiance;
+    RTXDI_COLOR              radiance;
 
     // RC vertex surface
     RAB_Surface         mainPathRcVertexSurface;
@@ -596,7 +596,7 @@ struct RTXDI_InitialSamplingPathTracerContext
     float               brdfPdfBeforeRcVertex;
 
     float               runningWeightSum;
-    float3              selectedTargetFunction;
+    RTXDI_COLOR              selectedTargetFunction;
     float               selectedRcWiPdf;
     uint                selectedPathLength;
     uint                selectedRcVertexLength;

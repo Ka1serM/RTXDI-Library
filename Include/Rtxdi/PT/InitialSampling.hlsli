@@ -56,10 +56,13 @@ RTXDI_PTReservoir InitializePTReservoirFromPTContext(RTXDI_INITIAL_CONTEXT ctx, 
     const float pHat = RTXDI_Luminance(ctx.GetSelectedTargetFunction());
     reservoir.weightSum = (pHat == 0.f) ? 0.f : (ctx.GetRunningWeightSum() / pHat);
 
+    // Lets the application store per-path state, such as the wavelength sample of the traced path.
+    RTXDI_PT_FINISH_INITIAL_SAMPLE(reservoir);
+
     return reservoir;
 }
 
-void FinalizeResampling(inout RTXDI_PTReservoir selectedReservoir, float3 selectedTargetFunction)
+void FinalizeResampling(inout RTXDI_PTReservoir selectedReservoir, RTXDI_COLOR selectedTargetFunction)
 {
     const float normalizationNumerator = 1.0;
     const float normalizationDenominator = RTXDI_Luminance(selectedTargetFunction) * selectedReservoir.M;
@@ -93,7 +96,7 @@ RTXDI_PTReservoir GenerateInitialSamples(RTXDI_PTInitialSamplingParameters initi
 
     RAB_PathTracerUserDataSetPathType(ptud, RTXDI_PTPathTraceInvocationType_Initial);
 
-    float3 selectedTargetFunction = float3(0.0, 0.0, 0.0);
+    RTXDI_COLOR selectedTargetFunction = (RTXDI_COLOR)0.0f;
 
     for(int i = 0; i < initialSamplingParams.numInitialSamples; i++)
     {

@@ -67,7 +67,7 @@ void RandomReplay(inout RTXDI_HYBRID_CONTEXT ctx,
                   const RTXDI_PTReservoir neighborSample,
                   inout RAB_Surface surfaceForResampling,
                   inout RTXDI_PathTracerRandomContext ptRandContext,
-                  inout float3 targetFunction,
+                  inout RTXDI_COLOR targetFunction,
                   inout RAB_PathTracerUserData ptud)
 {
     // set the RcVertexLength and the path length here
@@ -237,7 +237,7 @@ void ValidateInvertibilityCondition(const RTXDI_HYBRID_CONTEXT ctx,
 void ValidateLightIDAndReservoir(const RTXDI_PTHybridShiftRuntimeParameters hsrParams,
                                  inout RTXDI_PTReservoir neighborSample,
                                  inout RTXDI_SampledLightData sampledLightData,
-                                 inout float3 targetFunction)
+                                 inout RTXDI_COLOR targetFunction)
 {
     if (RTXDI_SampledLightData_IsValidLightData(sampledLightData))
     {
@@ -269,7 +269,7 @@ void ValidateLightIDAndReservoir(const RTXDI_PTHybridShiftRuntimeParameters hsrP
 }
 
 // A helper used for pairwise MIS computations.  This might be able to simplify code elsewhere, too.
-float3 RTXDI_ComputeTargetFunctionWithLightPdf(const RTXDI_PTHybridShiftRuntimeParameters hsrParams,
+RTXDI_COLOR RTXDI_ComputeTargetFunctionWithLightPdf(const RTXDI_PTHybridShiftRuntimeParameters hsrParams,
                                                const RTXDI_SampledLightData sampledLightData,
                                                const RAB_Surface surface,
                                                inout float lightPdf,
@@ -281,7 +281,7 @@ float3 RTXDI_ComputeTargetFunctionWithLightPdf(const RTXDI_PTHybridShiftRuntimeP
 
     const bool isVisible = RAB_GetConservativeVisibility(surface, lightSample);
 
-    float3 targetFunction = isVisible ? RAB_GetReflectedBsdfRadianceForSurface(RAB_LightSamplePosition(lightSample), RAB_LightSampleRadiance(lightSample), surface) : float3(0.0f, 0.0f, 0.0f);
+    RTXDI_COLOR targetFunction = isVisible ? RAB_GetReflectedBsdfRadianceForSurface(RAB_LightSamplePosition(lightSample), RAB_LightSampleRadiance(lightSample), surface) : (RTXDI_COLOR)0.0f;
 
     float3 surfaceToLightVector = RAB_LightSamplePosition(lightSample) - RAB_GetSurfaceWorldPos(surface);
     float distanceToLight = length(surfaceToLightVector);
@@ -297,7 +297,7 @@ void UpdateReconnectionForRTXDIConnectedLight(const RTXDI_PTHybridShiftRuntimePa
                                               const RTXDI_HYBRID_CONTEXT ctx,
                                               const RAB_Surface surfaceForResampling,
                                               inout float jacobian,
-                                              inout float3 targetFunction,
+                                              inout RTXDI_COLOR targetFunction,
                                               inout RTXDI_PTReservoir neighborSample,
                                               inout RAB_PathTracerUserData ptud)
 {
@@ -312,7 +312,7 @@ void UpdateReconnectionForRTXDIConnectedLight(const RTXDI_PTHybridShiftRuntimePa
     float invPartialJacobian = 1.f;
     float3 lightPos = float3(0.0f, 0.0f, 0.0f);
     RAB_LightSample lightSample = RAB_EmptyLightSample();
-    float3 lightReflectedRadiance = RTXDI_ComputeTargetFunctionWithLightPdf(hsrParams, sampledLightData, surfaceForResampling, invPartialJacobian, lightPos, lightSample);
+    RTXDI_COLOR lightReflectedRadiance = RTXDI_ComputeTargetFunctionWithLightPdf(hsrParams, sampledLightData, surfaceForResampling, invPartialJacobian, lightPos, lightSample);
     
     const float originalInvPartialJacobian = neighborSample.partialJacobian; // yes, this stores the src sample light pdf
     targetFunction *= lightReflectedRadiance;
@@ -347,12 +347,15 @@ void RTXDI_ComputeHybridShift(inout RAB_Surface surfaceForResampling,
                               RTXDI_PTHybridShiftPerFrameParameters hspfParams,
                               RTXDI_PTHybridShiftRuntimeParameters hsrParams,
                               RTXDI_PTReconnectionParameters rcParams,
-                              inout float3 targetFunction,
+                              inout RTXDI_COLOR targetFunction,
                               inout float jacobian,
                               inout RAB_PathTracerUserData ptud)
 {
     jacobian = 1.f;
-    targetFunction = float3(1.0f, 1.0f, 1.0f);
+    targetFunction = (RTXDI_COLOR)1.0f;
+
+    // Lets the application evaluate the shift at the sample's own wavelengths, or other per-sample state.
+    RTXDI_PT_BEGIN_SHIFT(neighborSample);
 
     RTXDI_PathTracerRandomContext ptrRandContext = (RTXDI_PathTracerRandomContext) 0;
     ptrRandContext.replayRandomSamplerState = RTXDI_CreateRandomSamplerFromDirectSeed(neighborSample.randomSeed, neighborSample.randomIndex);

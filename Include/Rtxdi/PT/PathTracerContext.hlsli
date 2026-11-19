@@ -96,7 +96,7 @@ struct RTXDI_PT_CONTEXT_NAME
     //
     // Call after CalculateBRDFOverPDF with the appropriate result
     //
-    RTXDI_MUTATING void MultiplyPathThroughput(float3 multiplicationFactor)
+    RTXDI_MUTATING void MultiplyPathThroughput(RTXDI_COLOR multiplicationFactor)
     {
         ctx.MultiplyPathThroughput(multiplicationFactor);
     }
@@ -165,7 +165,7 @@ struct RTXDI_PT_CONTEXT_NAME
     //     RecordPathIntersection() for tracking reconnection data.
     // Call after RecordPathIntersection()
     //
-    RTXDI_MUTATING bool RecordEmissiveLightSample(float3 radianceFromEmissiveSurface, RAB_Surface prevSurface, inout RTXDI_RandomSamplerState rng)
+    RTXDI_MUTATING bool RecordEmissiveLightSample(RTXDI_COLOR radianceFromEmissiveSurface, RAB_Surface prevSurface, inout RTXDI_RandomSamplerState rng)
     {
         return ctx.RecordEmissiveLightSample(radianceFromEmissiveSurface, prevSurface, rng);
     }
@@ -186,7 +186,7 @@ struct RTXDI_PT_CONTEXT_NAME
     // Call after RecordPathIntersection with the results of the path tracer's NEE routine
     //
     RTXDI_MUTATING bool RecordNeeLightSample(in const RTXDI_SampledLightData sampledLightData,
-                              in const float3 radianceFromLights,
+                              in const RTXDI_COLOR radianceFromLights,
                               in const float neePdf,
                               in const float scatterPdf,
                               in const RAB_LightSample lightSample,
@@ -200,20 +200,20 @@ struct RTXDI_PT_CONTEXT_NAME
         ctx.RecordPathRadianceMiss(rng);
     }
 
-    RTXDI_MUTATING bool RecordEnvironmentMapLightSample(const float3 environmentMapRadiance,
+    RTXDI_MUTATING bool RecordEnvironmentMapLightSample(const RTXDI_COLOR environmentMapRadiance,
                                          RAB_Surface prevSurface,
                                          inout RTXDI_RandomSamplerState rng)
     {
         return ctx.RecordEnvironmentMapLightSample(environmentMapRadiance, prevSurface, rng);
     }
 
-    float CalculateRISWeight(float3 targetFunctionOverP)
+    float CalculateRISWeight(RTXDI_COLOR targetFunctionOverP)
     {
         return ctx.CalculateRISWeight(targetFunctionOverP);
     }
 
     RTXDI_MUTATING bool RISStreamPathSample(uint pathLength,
-                             float3 currentLightRadiance,
+                             RTXDI_COLOR currentLightRadiance,
                              inout RTXDI_RandomSamplerState rng,
                              uint rcVertexLength,
                              bool isNee,
@@ -253,7 +253,7 @@ struct RTXDI_PT_CONTEXT_NAME
         return ctx.GetIntersectionSurface();
     }
 
-    float3 GetContinuationRayBrdfOverPdf()
+    RTXDI_COLOR GetContinuationRayBrdfOverPdf()
     {
         return ctx.GetContinuationRayBrdfOverPdf();
     }
@@ -263,7 +263,7 @@ struct RTXDI_PT_CONTEXT_NAME
         return ctx.GetContinuationRay();
     }
 
-    float3 GetPathThroughput()
+    RTXDI_COLOR GetPathThroughput()
     {
         return ctx.GetPathThroughput();
     }
@@ -300,7 +300,7 @@ struct RTXDI_PT_CONTEXT_NAME
         ctx.Init(ptParams, primarySurface, ptRandContext);
     }
 
-    float3 GetRadiance()
+    RTXDI_COLOR GetRadiance()
     {
         return ctx.GetRadiance();
     }
@@ -335,7 +335,7 @@ struct RTXDI_PT_CONTEXT_NAME
         return ctx.selectedRcWiPdf;
     }
 
-    float3 GetSelectedTargetFunction()
+    RTXDI_COLOR GetSelectedTargetFunction()
     {
         return ctx.GetSelectedTargetFunction();
     }

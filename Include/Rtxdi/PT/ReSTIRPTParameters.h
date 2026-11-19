@@ -70,6 +70,10 @@ struct RTXDI_PackedPTReservoir
     uint4 Data1;
     uint4 Data2;
     uint4 Data3;
+#if defined(RTXDI_COLOR_COMPONENTS) && RTXDI_COLOR_COMPONENTS == 4
+    // radiance.w, targetFunction.w, wavelengthSample
+    uint4 Data4;
+#endif
 };
 
 struct RTXDI_PTBufferIndices

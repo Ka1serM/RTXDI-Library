@@ -98,7 +98,7 @@ struct RTXDI_PathTracerState
     uint16_t bounceDepth;
 
     // Current path throughput divided by part of the pdfs, it doesn't count the pdf of producing secondary ray though.
-    float3 pathThroughput;
+    RTXDI_COLOR pathThroughput;
 
     // Outgoing direct and PDF from surface n to surface n+1.
     RTXDI_BrdfRaySample brdfRaySample;
@@ -114,7 +114,7 @@ struct RTXDI_PathTracerState
     uint16_t ptStateFlags;
 
     // Continuation ray
-    float3 continuationRayBrdfOverPdf;
+    RTXDI_COLOR continuationRayBrdfOverPdf;
 
     // Intersection payload
     RAB_RayPayload traceResult;
@@ -138,7 +138,7 @@ struct RTXDI_PathTracerState
     // ReSTIR PT state
     //
 
-    float3 rcPathThroughput;
+    RTXDI_COLOR rcPathThroughput;
 
     uint16_t rcVertexLength;
 
@@ -158,7 +158,7 @@ RTXDI_PathTracerState RTXDI_InitializePathTracerState(RAB_Surface surface, uint 
     ptState.initialBounceDepth = 2; // Starting surface is primary hit (1), but initialBounce starts at the surface after the scattering event, which is the secondary surface (2)
     ptState.bounceDepth = ptState.initialBounceDepth;
     ptState.maxPathBounce = (uint16_t)maxBounces;
-    ptState.pathThroughput = float3(1.0f, 1.0f, 1.0f);
+    ptState.pathThroughput = (RTXDI_COLOR)1.0f;
     ptState.intersectionSurface = surface;
     return ptState;
 }

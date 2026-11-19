@@ -21,11 +21,13 @@
 #define RTXDI_MUTATING
 #endif
 
+#include "Rtxdi/Utils/Color.hlsli"
 #include "Rtxdi/Utils/Math.hlsli"
 
 #define RTXDI_BrdfRaySampleProperties_ContinuousDelta_Bit 0
 #define RTXDI_BrdfRaySampleProperties_DiffuseSpecular_Bit 1
 #define RTXDI_BrdfRaySampleProperties_ReflectionTransmission_Bit 2
+#define RTXDI_BrdfRaySampleProperties_Reconnectible_Bit 3
 
 struct RTXDI_BrdfRaySampleProperties
 {
@@ -81,6 +83,17 @@ struct RTXDI_BrdfRaySampleProperties
     {
         return GetBit(flags, RTXDI_BrdfRaySampleProperties_ReflectionTransmission_Bit);
     }
+
+    // A vertex whose scattering depends on the wavelength, or a volumetric vertex such as a Gaussian,
+    // cannot take a neighbor's reconnection: the shifted path would carry the wrong spectrum or density.
+    RTXDI_MUTATING void SetNotReconnectible()
+    {
+        SetBit(flags, RTXDI_BrdfRaySampleProperties_Reconnectible_Bit, 1);
+    }
+    bool IsNotReconnectible()
+    {
+        return GetBit(flags, RTXDI_BrdfRaySampleProperties_Reconnectible_Bit);
+    }
 };
 
 RTXDI_BrdfRaySampleProperties RTXDI_DefaultBrdfRaySampleProperties()
@@ -101,7 +114,7 @@ struct RTXDI_BrdfRaySample
     float outPdf;
 
     // BRDF of outgoing direction premultiplied by the cosine term
-    float3 brdfTimesNoL;
+    RTXDI_COLOR brdfTimesNoL;
 
     RTXDI_BrdfRaySampleProperties properties;
 };

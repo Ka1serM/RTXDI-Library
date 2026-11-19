@@ -13,10 +13,31 @@
 #ifndef RTXDI_COLOR_HLSLI
 #define RTXDI_COLOR_HLSLI
 
+// RTXDI_COLOR is the type of every color value in ReSTIR PT: radiance, throughput and target functions.
+// The default is RGB. A spectral renderer defines float4 with RTXDI_COLOR_COMPONENTS 4, which holds four
+// wavelengths, and the reservoir then also keeps the wavelength sample that chose them.
+#ifndef RTXDI_COLOR
+#define RTXDI_COLOR float3
+#define RTXDI_COLOR_COMPONENTS 3
+#endif
+
+#if RTXDI_COLOR_COMPONENTS == 3
+#define RTXDI_ColorFromFloat3(value) (value)
+#else
+#define RTXDI_ColorFromFloat3(value) float4(value, 0.0f)
+#endif
+
 // return the luminance of the given RGB color
 float RTXDI_Luminance(float3 rgb)
 {
     return dot(rgb, float3(0.2126f, 0.7152f, 0.0722f));
+}
+
+// Returns the scalar target function of four spectral samples. A spectral renderer weights the samples
+// before they reach RTXDI, so the mean is the luminance estimate.
+float RTXDI_Luminance(float4 spectral)
+{
+    return dot(spectral, float4(0.25f, 0.25f, 0.25f, 0.25f));
 }
 
 // Transforms an RGB color in Rec.709 to CIE XYZ.
