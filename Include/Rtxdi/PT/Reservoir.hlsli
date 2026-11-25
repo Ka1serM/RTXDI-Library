@@ -28,6 +28,10 @@
 #ifndef RTXDI_PT_FINISH_INITIAL_SAMPLE
 #define RTXDI_PT_FINISH_INITIAL_SAMPLE(reservoir)
 #endif
+
+// Define RTXDI_PT_APPLICATION_PATH_TRACER when the application runs the path tracing loop itself, for example as a wavefront.
+// RTXDI then leaves out GenerateInitialSamples and the random replay of the hybrid shift, and the hybrid shift calls
+// RAB_RandomReplay(neighborSample, inout surfaceForResampling, inout targetFunction, inout ptud) for the replay instead.
 #include "../Utils/RandomSamplerState.hlsli"
 #include "../Utils/ReservoirAddressing.hlsli"
 #include "../Utils/SampledLightData.hlsli"

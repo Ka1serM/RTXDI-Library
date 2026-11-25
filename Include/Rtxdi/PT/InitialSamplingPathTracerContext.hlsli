@@ -258,6 +258,23 @@ struct RTXDI_InitialSamplingPathTracerContext
         return selected;
     }
 
+    // NEE at the primary vertex, before the first BSDF sample: a path of length initialBounceDepth whose rcVertex is the light vertex,
+    // so that direct lighting is resampled with the indirect paths in one reservoir, as the unified reservoir of ReSTIR PT Enhanced does
+    RTXDI_MUTATING bool RecordPrimaryNeeLightSample(in const RTXDI_SampledLightData sampledLightData,
+                                                    in const RTXDI_COLOR radianceFromLights,
+                                                    in const float neePdf,
+                                                    in const RAB_LightSample lightSample,
+                                                    inout RTXDI_RandomSamplerState rng)
+    {
+        if (!any(radianceFromLights > 0.f) || !RTXDI_SampledLightData_IsValidLightData(sampledLightData))
+            return false;
+        ptState.sampledLightDataForDI = sampledLightData;
+        ptState.lightSampleForDI = lightSample;
+        const uint pathLength = ptState.initialBounceDepth;
+        return RISStreamPathSample(pathLength, radianceFromLights, rng, pathLength, true, neePdf,
+            float3(1.f / 0.f, asfloat(sampledLightData.lightData), asfloat(sampledLightData.uvData)), RAB_LightSampleSolidAnglePdf(lightSample));
+    }
+
     RTXDI_MUTATING void RecordPathRadianceMiss(inout RTXDI_RandomSamplerState rng)
     {
         ptState.SetPathTermination(true);

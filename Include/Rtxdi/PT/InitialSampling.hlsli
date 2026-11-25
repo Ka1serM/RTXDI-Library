@@ -85,6 +85,7 @@ RTXDI_PathTracerContextParameters GetPTContextParams(
     return ctxParams;
 }
 
+#if !defined(RTXDI_PT_APPLICATION_PATH_TRACER)
 RTXDI_PTReservoir GenerateInitialSamples(RTXDI_PTInitialSamplingParameters initialSamplingParams,
                                          RTXDI_PTInitialSamplingRuntimeParameters isrParams,
                                          RTXDI_PTReconnectionParameters rcParams,
@@ -119,5 +120,6 @@ RTXDI_PTReservoir GenerateInitialSamples(RTXDI_PTInitialSamplingParameters initi
 
     return selectedReservoir;
 }
+#endif
 
 #endif // RTXDI_RESTIR_PT_INITIAL_SAMPLING_HLSLI

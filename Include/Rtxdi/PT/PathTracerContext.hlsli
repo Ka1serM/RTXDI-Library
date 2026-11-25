@@ -195,6 +195,18 @@ struct RTXDI_PT_CONTEXT_NAME
         return ctx.RecordNeeLightSample(sampledLightData, radianceFromLights, neePdf, scatterPdf, lightSample, rng);
     }
 
+    //
+    // Records NEE at the primary vertex, before the first BSDF sample of the path
+    //
+    RTXDI_MUTATING bool RecordPrimaryNeeLightSample(in const RTXDI_SampledLightData sampledLightData,
+                                                    in const RTXDI_COLOR radianceFromLights,
+                                                    in const float neePdf,
+                                                    in const RAB_LightSample lightSample,
+                                                    inout RTXDI_RandomSamplerState rng)
+    {
+        return ctx.RecordPrimaryNeeLightSample(sampledLightData, radianceFromLights, neePdf, lightSample, rng);
+    }
+
     RTXDI_MUTATING void RecordPathRadianceMiss(inout RTXDI_RandomSamplerState rng)
     {
         ctx.RecordPathRadianceMiss(rng);

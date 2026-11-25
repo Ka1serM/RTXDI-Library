@@ -63,6 +63,7 @@ bool NeedToRunRandomReplayPathTracer(const RTXDI_PTReservoir neighborSample)
     return neighborSample.rcVertexLength > 2;
 }
 
+#if !defined(RTXDI_PT_APPLICATION_PATH_TRACER)
 void RandomReplay(inout RTXDI_HYBRID_CONTEXT ctx,
                   const RTXDI_PTReservoir neighborSample,
                   inout RAB_Surface surfaceForResampling,
@@ -83,6 +84,7 @@ void RandomReplay(inout RTXDI_HYBRID_CONTEXT ctx,
     // This is now the "prefix" throughput
     targetFunction = ctx.GetRadiance();
 }
+#endif
 
 void CalculatePartialJacobian(const float3 receiverPos,
                               const float3 samplePos,
@@ -323,9 +325,9 @@ void UpdateReconnectionForRTXDIConnectedLight(const RTXDI_PTHybridShiftRuntimePa
     
     RAB_LastBounceDenoiserCallback(lightPos, surfaceForResampling, ptud);
 
-    float scatterPdf = 0.f;
-    if (ctx.GetReconnectionMode() == RTXDI_RESTIRPT_RECONNECTION_MODE_FOOTPRINT)
-        scatterPdf = RAB_SurfaceEvaluateBrdfPdf(surfaceForResampling, lightDirection);
+    // the NEE MIS weight of the shifted path needs the BSDF pdf toward the light in every reconnection mode,
+    // or the shifted target function differs from the target function of the initial sample
+    const float scatterPdf = RAB_SurfaceEvaluateBrdfPdf(surfaceForResampling, lightDirection);
         
     // invertibility check 
     // an NEE-sampled light vertex is by definition always connectible
@@ -339,7 +341,7 @@ void UpdateReconnectionForRTXDIConnectedLight(const RTXDI_PTHybridShiftRuntimePa
         }
     }
     
-    targetFunction *= RAB_GetMISWeightForNEE(RTXDI_SampledLightData_GetLightIndex(sampledLightData), lightSample, lightDirection, invPartialJacobian, scatterPdf);
+    targetFunction *= RAB_GetMISWeightForNEE(surfaceForResampling, RTXDI_SampledLightData_GetLightIndex(sampledLightData), lightSample, lightDirection, invPartialJacobian, scatterPdf);
 }
 
 void RTXDI_ComputeHybridShift(inout RAB_Surface surfaceForResampling,
@@ -371,7 +373,11 @@ void RTXDI_ComputeHybridShift(inout RAB_Surface surfaceForResampling,
 
     if (needToRunRandomReplayPathTracer)
     {
+#if defined(RTXDI_PT_APPLICATION_PATH_TRACER)
+        RAB_RandomReplay(neighborSample, surfaceForResampling, targetFunction, ptud);
+#else
         RandomReplay(ctx, neighborSample, surfaceForResampling, ptrRandContext, targetFunction, ptud);
+#endif
     }
 
     const bool connectToRtxdiLight = ConnectsToNEELight(neighborSample);
